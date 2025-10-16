@@ -1,0 +1,116 @@
+model biosensor_circuit
+            
+    // ============================================================
+    // BIOSENSOR CIRCUIT - PROPERLY BALANCED FOR DOSE-RESPONSE
+    // ============================================================
+    
+    compartment cell = 1.0;
+    
+    // Input: sclerostin from environment
+    species sclerostin_input in cell;
+    const sclerostin_input;  // Make it constant so it doesn't get consumed
+    
+    // Sensor components
+    species receptor in cell;
+    species receptor_bound in cell;
+    species signal_cascade in cell;
+    species transcription_factor in cell;
+    
+    // Reporter gene expression
+    species reporter_mrna in cell;
+    species reporter_protein in cell;
+    
+    // Feedback components
+    species feedback_inhibitor in cell;
+    
+    // ============================================================
+    // PARAMETERS (RL-TUNABLE) - PROPERLY BALANCED
+    // ============================================================
+    
+    // Receptor binding
+    k_bind = 0.5;                           // Binding rate
+    k_unbind = 5.0;                         // Unbinding rate -> Kd = 10 nM
+    receptor_total = 2000.0;                // Total receptor pool
+    
+    // Signal transduction - DRASTICALLY REDUCED to prevent runaway
+    k_signal_activation = 1.5;              // Higher activation for signal propagation
+    k_signal_decay = 0.3;                   // Lower decay to allow signal buildup
+    k_tf_activation = 0.5;                  // Higher TF activation
+    k_tf_decay = 0.15;                      // Lower TF decay
+    
+    // Transcription & translation - MODERATE
+    k_transcription = 5.0;                  // Moderate transcription
+    k_translation = 8.0;                    // Moderate translation
+    k_mrna_decay = 0.023;                   // 30 min halflife
+    k_protein_decay = 0.012;                // 60 min halflife
+    
+    // Feedback
+    k_feedback_production = 0.0;            // Default off
+    k_feedback_decay = 0.05;
+    feedback_inhibition_ki = 10.0;
+    
+    // Circuit burden
+    metabolic_cost = 0.001;                 // Minimal burden
+    
+    // ============================================================
+    // ASSIGNMENT RULES
+    // ============================================================
+    
+    // Free receptor
+    receptor_free := receptor_total - receptor_bound;
+    
+    // Binding kinetics
+    binding_rate := k_bind * sclerostin_input * receptor_free;
+    unbinding_rate := k_unbind * receptor_bound;
+    
+    // Hill function for transcriptional activation
+    // CRITICAL: Km should be in range where TF operates (5-50)
+    hill_coefficient = 2.0;
+    hill_km = 15.0;  // Mid-point of TF range
+    transcription_rate := k_transcription * (transcription_factor^hill_coefficient) / (hill_km^hill_coefficient + transcription_factor^hill_coefficient);
+    
+    // Metabolic burden (minimal effect)
+    burden_factor := 1.0 / (1.0 + metabolic_cost * reporter_protein);
+    
+    // Feedback inhibition
+    feedback_factor := 1.0 / (1.0 + feedback_inhibitor / feedback_inhibition_ki);
+    
+    // ============================================================
+    // REACTIONS
+    // ============================================================
+    
+    // Receptor-ligand binding
+    R_binding: receptor_free -> receptor_bound; binding_rate;
+    R_unbinding: receptor_bound -> receptor_free; unbinding_rate;
+    
+    // Signal cascade - LOW activation rate
+    R_signal_activation: -> signal_cascade; k_signal_activation * receptor_bound * feedback_factor;
+    R_signal_decay: signal_cascade -> ; k_signal_decay * signal_cascade;
+    
+    // Transcription factor - LOW activation rate
+    R_tf_activation: -> transcription_factor; k_tf_activation * signal_cascade;
+    R_tf_decay: transcription_factor -> ; k_tf_decay * transcription_factor;
+    
+    // Reporter expression - NO DOUBLE COUNTING!
+    R_transcription: -> reporter_mrna; transcription_rate * burden_factor;   
+    R_mrna_degradation: reporter_mrna -> ; k_mrna_decay * reporter_mrna;
+    R_translation: reporter_mrna -> reporter_mrna + reporter_protein; k_translation * reporter_mrna;
+    R_protein_degradation: reporter_protein -> ; k_protein_decay * reporter_protein;
+    
+    // Feedback regulation
+    R_feedback_production: -> feedback_inhibitor; k_feedback_production * reporter_protein;
+    R_feedback_decay: feedback_inhibitor -> ; k_feedback_decay * feedback_inhibitor;
+    
+    // ============================================================
+    // INITIAL CONDITIONS
+    // ============================================================
+    sclerostin_input = 47.0;
+    receptor = receptor_total;
+    receptor_bound = 0.0;
+    signal_cascade = 0.0;
+    transcription_factor = 0.0;
+    reporter_mrna = 0.0;
+    reporter_protein = 0.0;
+    feedback_inhibitor = 0.0;
+    
+end
