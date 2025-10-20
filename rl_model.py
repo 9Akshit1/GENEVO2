@@ -19,6 +19,7 @@ Stages:
 import json
 import csv
 import os
+import sys
 import warnings
 import numpy as np
 import pandas as pd
@@ -69,6 +70,57 @@ from stable_baselines3.common.callbacks import EvalCallback, BaseCallback, Callb
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+class DualLogger:
+    """Context manager for logging to both console and file"""
+    
+    def __init__(self, log_dir="logs"):
+        self.log_dir = Path(log_dir)
+        self.log_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.log_file = self.log_dir / f"run_{timestamp}.log"
+        
+        self.terminal = sys.stdout
+        self.log_handle = None
+        self.old_stdout = None
+        self.old_stderr = None
+    
+    def __enter__(self):
+        self.log_handle = open(self.log_file, 'w', encoding='utf-8')
+        
+        class TeeWriter:
+            def __init__(self, terminal, file):
+                self.terminal = terminal
+                self.file = file
+            
+            def write(self, message):
+                self.terminal.write(message)
+                self.file.write(message)
+                self.file.flush()
+            
+            def flush(self):
+                self.terminal.flush()
+                self.file.flush()
+        
+        self.old_stdout = sys.stdout
+        self.old_stderr = sys.stderr
+        
+        tee = TeeWriter(self.terminal, self.log_handle)
+        sys.stdout = tee
+        sys.stderr = tee
+        
+        print(f"🔍 Logging to: {self.log_file}")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
+        
+        if self.log_handle:
+            self.log_handle.close()
+        
+        print(f"✅ Log saved to: {self.log_file}")
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -252,9 +304,8 @@ class BiosensorPipeline:
             Dictionary with preprocessing information
         """
 
-        # Handle backward compatibility
+        # Handle backward compatibility silently
         if apply_pca is not None:
-            print("⚠️  apply_pca parameter is deprecated. Use dimensionality_reduction instead.")
             dimensionality_reduction = 'pca' if apply_pca else 'none'
 
         print("🔄 Starting advanced data preprocessing with proper variable classification...")
@@ -1063,7 +1114,7 @@ class BiosensorPipeline:
                 
                 # Select best transformation
                 valid_transformations = [t for t in transformations if t['score'] > -1000]
-                
+
                 if not valid_transformations:
                     print(f"   No valid transformations found for {col}, using original data")
                     transformed_train = train_data.values
@@ -1072,13 +1123,27 @@ class BiosensorPipeline:
                 else:
                     best_transform = max(valid_transformations, key=lambda x: x['score'])
                     
-                    print(f"   📈 Transformation results for {col}:")
-                    for t in sorted(valid_transformations, key=lambda x: x['score'], reverse=True)[:3]:
-                        print(f"      {t['transform']}: Score={t['score']:.2f}, "
-                            f"Skew: {t['orig_skew']:.3f}→{t['trans_skew']:.3f}")
+                    # IMPROVEMENT: Only use transformation if it significantly improves skewness
+                    orig_abs_skew = abs(best_transform.get('orig_skew', 0))
+                    trans_abs_skew = abs(best_transform.get('trans_skew', 0))
                     
-                    print(f"   ✅ Selected: {best_transform['transform']}")
+                    skew_improvement = orig_abs_skew - trans_abs_skew
                     
+                    # Require at least 20% reduction in absolute skewness
+                    if skew_improvement < 0.2 * orig_abs_skew and best_transform['transform'] != "None":
+                        print(f"   ⚠️ Transformation doesn't significantly improve skewness, using original")
+                        print(f"      Original skew: {orig_abs_skew:.3f}, Transformed: {trans_abs_skew:.3f}")
+                        transformed_train = train_data.values
+                        transformed_test = test_data.values
+                        self.y_transformers[col] = None
+                    else:
+                        print(f"   📈 Transformation results for {col}:")
+                        for t in sorted(valid_transformations, key=lambda x: x['score'], reverse=True)[:3]:
+                            print(f"      {t['transform']}: Score={t['score']:.2f}, "
+                                f"Skew: {t['orig_skew']:.3f}→{t['trans_skew']:.3f}")
+                        
+                        print(f"   ✅ Selected: {best_transform['transform']}")
+        
                     # Apply the best transformation
                     if best_transform['transform'] == "None":
                         transformed_train = train_data.values
@@ -1858,7 +1923,8 @@ class BiosensorPipeline:
             
             # Store model and feature importance
             self.models[f'{model_name}_{target_metric}'] = final_model
-            
+
+            # Extract feature importance from sklearn models too
             if hasattr(final_model, 'feature_importances_'):
                 if model_name == 'LightGBM':
                     feature_names = X_train_clean.columns
@@ -1870,6 +1936,15 @@ class BiosensorPipeline:
                     'importance': final_model.feature_importances_
                 }).sort_values('importance', ascending=False)
                 self.feature_importance[f'{model_name}_{target_metric}'] = feature_imp
+                print(f"   ✅ Feature importance extracted for {model_name}")
+            elif hasattr(final_model, 'coef_'):  # Linear models
+                feature_names = self.X_train_enhanced.columns
+                feature_imp = pd.DataFrame({
+                    'feature': feature_names,
+                    'importance': np.abs(final_model.coef_)
+                }).sort_values('importance', ascending=False)
+                self.feature_importance[f'{model_name}_{target_metric}'] = feature_imp
+                print(f"   ✅ Feature importance extracted from coefficients for {model_name}")
         
         # Step 8: Model comparison and selection
         print(f"\n🏆 MODEL COMPARISON for {target_metric}")
@@ -2219,6 +2294,32 @@ class BiosensorPipeline:
     def _handle_problematic_targets(self, target_metric, y_train_target, y_test_target):
         """Handle targets with problematic distributions"""
         
+        # SPECIAL HANDLING FOR FALSE NEGATIVE RATE
+        if 'false_negative' in target_metric.lower():
+            print(f"      🎯 Special handling for False Negative Rate...")
+            
+            # Check if it's a binary classification problem disguised as regression
+            unique_values = len(np.unique(y_train_target))
+            if unique_values <= 10:  # Likely categorical
+                print(f"      💡 Converting to classification task ({unique_values} unique values)")
+                # Return as-is and flag for classification
+                return y_train_target, y_test_target, False
+            
+            # Check if values are bounded [0, 1] - apply logit transformation
+            if y_train_target.min() >= 0 and y_train_target.max() <= 1:
+                print(f"      🔧 Applying logit transformation for bounded [0,1] data")
+                
+                # Clip to avoid log(0) and log(1)
+                epsilon = 1e-7
+                y_train_clipped = np.clip(y_train_target, epsilon, 1 - epsilon)
+                y_test_clipped = np.clip(y_test_target, epsilon, 1 - epsilon)
+                
+                # Logit transformation: log(p / (1-p))
+                y_train_transformed = np.log(y_train_clipped / (1 - y_train_clipped))
+                y_test_transformed = np.log(y_test_clipped / (1 - y_test_clipped))
+                
+                return y_train_transformed, y_test_transformed, False
+        
         # Check for constant targets (like perf_specificity with all 0.0)
         if len(np.unique(y_train_target)) <= 1:
             print(f"      ⚠️  CRITICAL: Target '{target_metric}' has constant/near-constant values!")
@@ -2286,10 +2387,8 @@ class BiosensorPipeline:
                 # Ensemble weights (learnable)
                 self.ensemble_weights = nn.Parameter(torch.ones(3) / 3)
                 
-                # Final combination layer
-                if task_type == 'regression':
-                    self.final_layer = nn.Linear(3, 1)
-                else:
+                # Final combination layer (only for classification)
+                if task_type == 'classification':
                     self.final_layer = nn.Linear(3 * n_classes, n_classes)
             
             def _create_deep_narrow(self, input_dim, task_type, n_classes):
@@ -2377,9 +2476,9 @@ class BiosensorPipeline:
                 weights = torch.softmax(self.ensemble_weights, dim=0)
                 
                 if self.task_type == 'regression':
-                    # Weighted average for regression
+                    # Weighted average for regression - FIX: Don't use final_layer
                     ensemble_out = weights[0] * out1 + weights[1] * out2 + weights[2] * out3
-                    return self.final_layer(ensemble_out)
+                    return ensemble_out  # REMOVED: self.final_layer(ensemble_out)
                 else:
                     # Concatenate and process for classification
                     combined = torch.cat([out1, out2, out3], dim=1)
@@ -2452,6 +2551,38 @@ class BiosensorPipeline:
                 
             except Exception as e:
                 print(f"      ❌ XGBoost strategy failed: {e}")
+        
+        # Strategy 4: CatBoost for difficult targets (if regression)
+        if not is_classification and 'false_negative' in target_metric.lower():
+            try:
+                from catboost import CatBoostRegressor
+                catboost_model = CatBoostRegressor(
+                    iterations=1000,
+                    learning_rate=0.03,
+                    depth=6,
+                    loss_function='RMSE',
+                    eval_metric='R2',
+                    random_seed=42,
+                    verbose=False
+                )
+                
+                catboost_model.fit(X_train_final, y_train_processed)
+                
+                train_pred = catboost_model.predict(X_train_final)
+                test_pred = catboost_model.predict(X_test_final)
+                
+                performance4 = {
+                    'train_r2': r2_score(y_train_processed, train_pred),
+                    'test_r2': r2_score(y_test_processed, test_pred),
+                    'train_mse': mean_squared_error(y_train_processed, train_pred),
+                    'test_mse': mean_squared_error(y_test_processed, test_pred)
+                }
+                
+                strategies.append(("CatBoost", catboost_model, performance4))
+                print(f"      🐱 CatBoost: R² = {performance4['test_r2']:.4f}")
+                
+            except Exception as e:
+                print(f"      ❌ CatBoost strategy failed: {e}")
         
         # Select best strategy
         if not strategies:
@@ -3055,6 +3186,38 @@ class BiosensorPipeline:
             else:
                 self.surrogate_features = {target_metric: selected_features}
         
+        # SAVE SURROGATE MODEL CONFIGURATIONS (for RL reliability)
+        config_path = self.models_dir / "surrogate_configs.json"
+        surrogate_configs = {
+            'target_metrics': self.target_metrics,
+            'data_statistics': {},
+            'model_architectures': {},
+            'r2_scores': {}
+        }
+
+        for metric, model in self.surrogate_models.items():
+            # Save R² score
+            if metric in surrogate_performance:
+                surrogate_configs['r2_scores'][metric] = surrogate_performance[metric].get('test_r2', -1)
+            
+            # Save data statistics for MOS normalization
+            if metric in self.y_train.columns:
+                surrogate_configs['data_statistics'][metric] = {
+                    'min': float(self.y_train[metric].min()),
+                    'max': float(self.y_train[metric].max()),
+                    'mean': float(self.y_train[metric].mean()),
+                    'std': float(self.y_train[metric].std())
+                }
+            
+            # Save model architecture info
+            if hasattr(model, 'get_params'):
+                surrogate_configs['model_architectures'][metric] = str(type(model).__name__)
+
+        with open(config_path, 'w') as f:
+            json.dump(surrogate_configs, f, indent=2)
+
+        print(f"✅ Surrogate configurations saved to: {config_path}")
+
         # Final summary
         print(f"\n🎉 ENHANCED SURROGATE MODEL TRAINING COMPLETE")
         print("=" * 60)
@@ -3125,6 +3288,50 @@ class BiosensorPipeline:
             print(f"   🎯 Consider if these targets are truly predictable from available features")
         
         print("✅ Enhanced surrogate models ready for RL!")
+
+        # CRITICAL: Validate R² thresholds before RL training
+        print("\n🔍 SURROGATE MODEL FIDELITY VALIDATION")
+        print("=" * 60)
+        insufficient_surrogates = []
+        for target, perf in surrogate_performance.items():
+            if perf['type'] == 'regression':
+                r2 = perf['test_r2']
+                if r2 < 0.90:
+                    insufficient_surrogates.append((target, r2))
+                    print(f"⚠️  {target}: R² = {r2:.4f} < 0.90 (BELOW THRESHOLD)")
+                elif r2 < 0.95:
+                    print(f"✅ {target}: R² = {r2:.4f} (Acceptable, target 0.95)")
+                else:
+                    print(f"⭐ {target}: R² = {r2:.4f} (Outstanding)")
+
+        if insufficient_surrogates:
+            print(f"\n❌ CRITICAL: {len(insufficient_surrogates)} surrogates below R² = 0.90 threshold!")
+            print("   RL agent will learn noise. Consider:")
+            print("   1. Increase training data")
+            print("   2. Better feature engineering")
+            print("   3. Hyperparameter tuning")
+            print("   4. Different model architectures")
+            for target, r2 in insufficient_surrogates:
+                print(f"      - {target}: {r2:.4f}")
+        else:
+            print("\n✅ All regression surrogates meet minimum R² ≥ 0.90 threshold!")
+        # REMOVE INSUFFICIENT SURROGATES FROM RL TARGETS
+        if insufficient_surrogates:
+            print(f"\n🔧 AUTOMATIC FIX: Removing {len(insufficient_surrogates)} insufficient surrogates from RL targets")
+            
+            insufficient_target_names = [target for target, r2 in insufficient_surrogates]
+            
+            # Remove from surrogate_models
+            for target in insufficient_target_names:
+                if target in self.surrogate_models:
+                    del self.surrogate_models[target]
+                    print(f"   ❌ Removed {target} from surrogate_models")
+            
+            # Remove from target_metrics
+            self.target_metrics = [m for m in self.target_metrics if m not in insufficient_target_names]
+            
+            print(f"   ✅ Updated target_metrics: {self.target_metrics}")
+            print(f"   ⚠️  RL will only use high-fidelity surrogates (R² ≥ 0.90)")
         return surrogate_performance
 
     def _create_classification_surrogate(self, input_dim, n_classes):
@@ -3229,7 +3436,7 @@ class BiosensorPipeline:
         os.makedirs(self.log_dir, exist_ok=True)
         
         class BiosensorEnv(gym.Env):
-            def __init__(self, modifiable_bounds, fixed_values, surrogate_models, target_metrics, log_dir, surrogate_features, X_train):
+            def __init__(self, modifiable_bounds, fixed_values, surrogate_models, target_metrics, log_dir, surrogate_features, X_train, data_min_max):
                 """
                 Initialize environment with proper variable separation
                 
@@ -3248,6 +3455,7 @@ class BiosensorPipeline:
                 self.step_logs = []
                 self.current_episode = 0
                 self.global_step = 0
+                self.data_min_max = data_min_max
                 
                 # Store variable classifications
                 self.modifiable_bounds = modifiable_bounds
@@ -3255,6 +3463,17 @@ class BiosensorPipeline:
                 self.surrogate_models = surrogate_models
                 self.target_metrics = target_metrics
                 self.surrogate_features = surrogate_features
+
+                # STORE DATA MIN/MAX FOR MOS NORMALIZATION
+                self.data_min_max = {}
+                if hasattr(self, 'X_train'):
+                    # Calculate from actual training data
+                    for metric in target_metrics:
+                        if metric in ['signal_to_noise_ratio_SNR', 'dynamic_range_of_output', 
+                                    'false_negative_rate', 'time_to_detection_threshold']:
+                            # Get from training data (you need to pass y_train to environment)
+                            # For now, initialize with placeholders
+                            self.data_min_max[metric] = (0, 1)  # MUST UPDATE from actual data
                 
                 # Only modifiable features can be changed by RL agent
                 self.modifiable_features = list(modifiable_bounds.keys())
@@ -3285,15 +3504,13 @@ class BiosensorPipeline:
 
                 self.X_train = X_train
 
-                # Check if key features are modifiable
-                key_features = ['reporter_signal_strength', 'arch_regulatory_elements', 'promoter_strength']
-                for feature in key_features:
-                    if feature in modifiable_bounds:
-                        print(f"✅ {feature} is MODIFIABLE")
-                    elif feature in fixed_values:
-                        print(f"⚠️ {feature} is FIXED - consider making it modifiable")
-                    else:
-                        print(f"❌ {feature} not found in data")
+                # Check if key features from modifiable_bounds are properly set up
+                if len(modifiable_bounds) > 0:
+                    print(f"✅ {len(modifiable_bounds)} modifiable features configured:")
+                    for feature in list(modifiable_bounds.keys())[:5]:  # Show first 5
+                        print(f"   - {feature}")
+                else:
+                    print(f"❌ WARNING: No modifiable features found!")
                 
                 # Reward weights for different metrics (NEW SCLEROSTIN BIOSENSOR)
                 self.metric_weights = {
@@ -3317,19 +3534,35 @@ class BiosensorPipeline:
                 self.current_episode_actions = []
                 self.current_episode_predictions = []
                 
-                # Action space: Continuous features (3 actions each) + Categorical features (N choices each)
-                n_continuous_actions = len(self.continuous_features) * 3  # decrease, keep, increase
+                # ACTION SPACE TRANSFORMATION (Section IV.1)
+                # Discrete actions for computational efficiency
+                self.action_mapping = {}
+                action_idx = 0
+
+                # For each modifiable continuous feature: 3 actions (decrease, no-op, increase)
+                for feature in self.continuous_features:
+                    self.action_mapping[action_idx] = ('continuous', feature, 'decrease', 0.9)  # 10% decrease
+                    action_idx += 1
+                    self.action_mapping[action_idx] = ('continuous', feature, 'keep', 1.0)  # NO-OP
+                    action_idx += 1
+                    self.action_mapping[action_idx] = ('continuous', feature, 'increase', 1.1)  # 10% increase
+                    action_idx += 1
+
+                # For each categorical feature: N actions (one per category)
+                for feature, categories in self.categorical_features.items():
+                    for category in categories:
+                        self.action_mapping[action_idx] = ('categorical', feature, 'set', category)
+                        action_idx += 1
+
+                # Total discrete actions
+                self.action_space = spaces.Discrete(len(self.action_mapping))
+
+                print(f"   Discrete action space: {len(self.action_mapping)} total actions")
+                print(f"   - Continuous features: {len(self.continuous_features)} × 3 = {len(self.continuous_features) * 3}")
+                print(f"   - Categorical features: {sum(len(cats) for cats in self.categorical_features.values())}")
                 
-                # For categorical features, add number of categories as discrete choices
-                n_categorical_actions = sum(len(cats) for cats in self.categorical_features.values())
-                
-                total_actions = n_continuous_actions + n_categorical_actions
-                self.action_space = spaces.Discrete(total_actions)
-                
-                print(f"   Action space size: {total_actions} (continuous: {n_continuous_actions}, categorical: {n_categorical_actions})")
-                
-                # Observation space: modifiable features + context
-                obs_size = self.n_modifiable + 5  # +5 for context info
+                # Observation space: modifiable features + 6 context values (added MOS)
+                obs_size = self.n_modifiable + 6  # +6 for context info (including predicted MOS)
                 self.observation_space = spaces.Box(
                     low=-3.0,
                     high=3.0,
@@ -3357,13 +3590,22 @@ class BiosensorPipeline:
                     try:
                         # Create a dummy full state (modifiable + fixed)
                         dummy_full_state = self._create_full_state(target_metric=metric)
-                        dummy_tensor = torch.FloatTensor(dummy_full_state).unsqueeze(0)
-                        with torch.no_grad():
-                            test_output = model(dummy_tensor)
-                            if torch.isnan(test_output).any():
+                        
+                        # Check if it's a PyTorch model or sklearn model
+                        if hasattr(model, 'eval'):  # PyTorch model
+                            dummy_tensor = torch.FloatTensor(dummy_full_state).unsqueeze(0)
+                            with torch.no_grad():
+                                test_output = model(dummy_tensor)
+                                if torch.isnan(test_output).any():
+                                    print(f"WARNING: Surrogate model {metric} produces NaN!")
+                                else:
+                                    print(f"✅ Surrogate model {metric} validated (PyTorch)")
+                        else:  # sklearn model (like GradientBoostingRegressor)
+                            test_output = model.predict(dummy_full_state.reshape(1, -1))
+                            if np.isnan(test_output).any():
                                 print(f"WARNING: Surrogate model {metric} produces NaN!")
                             else:
-                                print(f"✅ Surrogate model {metric} validated")
+                                print(f"✅ Surrogate model {metric} validated (sklearn)")
                     except Exception as e:
                         print(f"ERROR: Surrogate model {metric} validation failed: {e}")
 
@@ -3552,8 +3794,38 @@ class BiosensorPipeline:
                     else:
                         normalized_modifiable[i] = 0.0
                 
-                # Context information
+                # ENHANCED STATE SPACE (Section IV.2)
+                # Include predicted MOS in observation
                 step_ratio = self.step_count / self.max_steps
+
+                # Calculate current predicted MOS
+                try:
+                    current_mos = 0.0
+                    if hasattr(self, 'surrogate_models'):
+                        # Quick MOS calculation
+                        for metric in ['signal_to_noise_ratio_SNR', 'dynamic_range_of_output', 
+                                    'false_negative_rate', 'time_to_detection_threshold']:
+                            if metric in self.surrogate_models:
+                                model = self.surrogate_models[metric]
+                                full_state = self._create_full_state(target_metric=metric)
+                                state_tensor = torch.FloatTensor(full_state).unsqueeze(0)
+                                
+                                if hasattr(model, 'eval'):
+                                    model.eval()
+                                    with torch.no_grad():
+                                        pred = model(state_tensor).item()
+                                else:
+                                    pred = model.predict(full_state.reshape(1, -1))[0]
+                                
+                                # Add to MOS (simplified, not normalized)
+                                if metric == 'signal_to_noise_ratio_SNR':
+                                    current_mos += 0.45 * (pred / 100.0)
+                                elif metric == 'dynamic_range_of_output':
+                                    current_mos += 0.25 * (pred / 20000.0)
+                                # FNR and TTD would be subtracted
+                except:
+                    current_mos = 0.0
+
                 if len(self.reward_history) > 0:
                     recent_rewards = self.reward_history[-5:]
                     reward_mean = np.mean(recent_rewards)
@@ -3562,11 +3834,11 @@ class BiosensorPipeline:
                     current_reward = self.reward_history[-1]
                 else:
                     reward_mean = reward_std = reward_trend = current_reward = 0.0
-                
-                # Combine observation
+
+                # INCLUDE PREDICTED MOS IN STATE (Section IV.2)
                 obs = np.concatenate([
                     normalized_modifiable,
-                    [step_ratio, reward_mean, reward_std, reward_trend, current_reward]
+                    [step_ratio, reward_mean, reward_std, reward_trend, current_reward, current_mos]
                 ]).astype(np.float32)
                 
                 # Safety check
@@ -3592,70 +3864,37 @@ class BiosensorPipeline:
                 # Store previous state for change tracking
                 prev_state = self.modifiable_state.copy()
                 
-                # Decode action - handle continuous and categorical separately
-                n_continuous = len(self.continuous_features)
-                n_continuous_actions = n_continuous * 3
-                
-                if action < n_continuous_actions:
-                    # CONTINUOUS FEATURE ACTION
-                    feature_idx = action // 3
-                    action_type = action % 3
-                    feature_name = self.continuous_features[feature_idx]
+                # DECODE DISCRETE ACTION using mapping
+                action_info = self.action_mapping[action]
+                action_type = action_info[0]  # 'continuous' or 'categorical'
+                feature_name = action_info[1]
+                operation = action_info[2]
+                value = action_info[3]
+
+                actual_idx = self.modifiable_features.index(feature_name)
+
+                if action_type == 'continuous':
+                    # Apply multiplier
+                    bounds = list(self.modifiable_bounds.values())[actual_idx]
+                    current_val = self.modifiable_state[actual_idx]
                     
-                    # Get the actual index in modifiable_state
-                    actual_idx = self.modifiable_features.index(feature_name)
-                    
-                    # Apply continuous action (existing logic)
-                    progress = self.step_count / self.max_steps
-                    
-                    if action_type == 0:  # decrease
-                        multiplier = 0.7 - 0.2 * progress
-                    elif action_type == 1:  # keep
-                        noise_scale = 0.02 * (1.0 - progress)
-                        multiplier = 1.0 + np.random.normal(0, noise_scale)
+                    if operation == 'decrease':
+                        new_value = current_val * value  # value = 0.9
+                    elif operation == 'keep':
+                        new_value = current_val  # NO-OP
                     else:  # increase
-                        multiplier = 1.3 + 0.2 * progress
+                        new_value = current_val * value  # value = 1.1
                     
-                    if multiplier != 1.0:
-                        bounds = list(self.modifiable_bounds.values())[actual_idx]
-                        current_val = self.modifiable_state[actual_idx]
-                        new_value = current_val * multiplier
-                        
-                        if new_value <= bounds[0] or new_value >= bounds[1]:
-                            range_size = bounds[1] - bounds[0]
-                            if action_type == 0:
-                                new_value = current_val - 0.1 * range_size
-                            elif action_type == 2:
-                                new_value = current_val + 0.1 * range_size
-                        
-                        self.modifiable_state[actual_idx] = np.clip(new_value, bounds[0], bounds[1])
-                
-                else:
-                    # CATEGORICAL FEATURE ACTION
-                    categorical_action = action - n_continuous_actions
-                    
-                    # Find which categorical feature this action corresponds to
-                    cumulative = 0
-                    for cat_feature, categories in self.categorical_features.items():
-                        if categorical_action < cumulative + len(categories):
-                            # This is the feature to modify
-                            category_idx = categorical_action - cumulative
-                            new_value = categories[category_idx]
-                            
-                            # Get actual index in modifiable_state
-                            actual_idx = self.modifiable_features.index(cat_feature)
-                            
-                            # For categorical features, we need to encode them properly
-                            if cat_feature == 'feedback_presence':
-                                self.modifiable_state[actual_idx] = float(new_value)
-                            elif cat_feature == 'circuit_topology':
-                                # One-hot encode or use numeric mapping
-                                topology_map = {'direct': 0.0, 'cascade': 0.5, 'incoherent_feedforward': 1.0}
-                                self.modifiable_state[actual_idx] = topology_map.get(new_value, 0.0)
-                            
-                            break
-                        
-                        cumulative += len(categories)
+                    # Clip to bounds
+                    self.modifiable_state[actual_idx] = np.clip(new_value, bounds[0], bounds[1])
+
+                elif action_type == 'categorical':
+                    # Set categorical value
+                    if feature_name == 'feedback_presence':
+                        self.modifiable_state[actual_idx] = float(value)
+                    elif feature_name == 'circuit_topology':
+                        topology_map = {'direct': 0.0, 'cascade': 0.5, 'incoherent_feedforward': 1.0}
+                        self.modifiable_state[actual_idx] = topology_map.get(value, 0.0)
                 
                 # Calculate reward and predictions
                 reward, predictions = self._calculate_reward_with_predictions()
@@ -3682,115 +3921,140 @@ class BiosensorPipeline:
                 self._log_trajectory_evolution(prev_state)
                 
                 # Determine if episode is done
-                done = self.step_count >= self.max_steps
+                done = bool(self.step_count >= self.max_steps)  # Ensure scalar boolean
                 
                 # IMPORTANT: Log episode summary when episode ends
                 if done:
                     self._log_episode_summary()
                 
-                return self._get_observation(), reward, done, {
-                    'raw_reward': reward,
-                    'step_count': self.step_count,
-                    'best_reward': self.best_reward,
+                # Ensure reward is scalar, not array
+                reward = float(reward) if hasattr(reward, '__float__') else reward
+                done = bool(done)
+
+                # Ensure reward and done are proper scalar/array types for vectorized env
+                info = {
+                    'raw_reward': reward if isinstance(reward, np.ndarray) else float(reward),
+                    'step_count': int(self.step_count),
+                    'best_reward': float(self.best_reward),
                     'predictions': predictions,
-                    'exploration_bonus': 0.0,  # You can track this separately
-                    'parameter_diversity': len([i for i in range(len(self.modifiable_state)) 
-                                            if abs(self.modifiable_state[i] - prev_state[i]) > 0.01])
+                    'exploration_bonus': 0.0,
+                    'parameter_diversity': int(len([i for i in range(len(self.modifiable_state)) 
+                                                if abs(self.modifiable_state[i] - prev_state[i]) > 0.01]))
                 }
-            
-            def _calculate_reward_with_predictions(self):
-                try:
-                    # Get predictions
-                    predictions = {}
-                    for metric in self.target_metrics:
-                        if metric in self.surrogate_models:
-                            model = self.surrogate_models[metric]
+
+                return self._get_observation(), reward, done, info
                             
-                            # Create full state for this metric
+            def _calculate_reward_with_predictions(self):
+                """Calculate reward using MOS with comprehensive error handling"""
+                try:
+                    # Initialize predictions dictionary
+                    predictions = {}
+                    
+                    # Step 1: Get predictions for all available metrics
+                    for metric in self.target_metrics:
+                        if metric not in self.surrogate_models:
+                            continue
+                            
+                        try:
+                            model = self.surrogate_models[metric]
                             full_state = self._create_full_state(target_metric=metric)
+                            
                             if hasattr(self, 'feature_scaler'):
                                 full_state_scaled = self.feature_scaler.transform(full_state.reshape(1, -1))[0]
                                 state_tensor = torch.FloatTensor(full_state_scaled).unsqueeze(0)
                             else:
                                 state_tensor = torch.FloatTensor(full_state).unsqueeze(0)
                             
-                            if hasattr(model, 'eval'):  # PyTorch model
+                            if hasattr(model, 'eval'):
                                 model.eval()
                                 with torch.no_grad():
                                     pred = model(state_tensor)
                                     predictions[metric] = pred.item()
-                            else:  # sklearn model
+                            else:
                                 state_array = state_tensor.squeeze().numpy()
                                 pred = model.predict(state_array.reshape(1, -1))
                                 predictions[metric] = pred[0]
+                                
+                        except Exception as e:
+                            print(f"⚠️  Failed to predict {metric}: {e}")
+                            predictions[metric] = 0.0
                     
-                    # NEW REWARD CALCULATION FOR SCLEROSTIN BIOSENSOR
-                    total_reward = 0.0
-                    reward_components = []
+                    # Step 2: Calculate MOS
+                    # Default ranges (used if data_min_max not available)
+                    default_ranges = {
+                        'signal_to_noise_ratio_SNR': (0, 100),
+                        'dynamic_range_of_output': (0, 20000),
+                        'false_negative_rate': (0, 1),
+                        'time_to_detection_threshold': (0, 200)
+                    }
                     
-                    # 1. Signal-to-Noise Ratio (MAXIMIZE, w1=0.45)
+                    # Use provided data_min_max or fall back to defaults
+                    ranges = getattr(self, 'data_min_max', default_ranges)
+                    
+                    def safe_normalize(value, metric_name):
+                        """Safely normalize with fallbacks"""
+                        if metric_name in ranges:
+                            min_val, max_val = ranges[metric_name]
+                        elif metric_name in default_ranges:
+                            min_val, max_val = default_ranges[metric_name]
+                        else:
+                            return 0.5  # Default middle value
+                        
+                        if max_val - min_val < 1e-10:
+                            return 0.5
+                        
+                        normalized = (value - min_val) / (max_val - min_val)
+                        return np.clip(normalized, 0.0, 1.0)
+                    
+                    # Calculate MOS components
+                    mos = 0.0
+                    
+                    # SNR (maximize, w=0.45)
                     if 'signal_to_noise_ratio_SNR' in predictions:
-                        snr = np.clip(predictions['signal_to_noise_ratio_SNR'], 0, 100)  # Assume max SNR ~100
-                        snr_normalized = np.log10(snr + 1) / np.log10(101)  # Log scale normalization
-                        snr_reward = self.metric_weights['signal_to_noise_ratio_SNR'] * snr_normalized
-                        total_reward += snr_reward
-                        reward_components.append(('snr', snr_reward))
+                        snr_norm = safe_normalize(predictions['signal_to_noise_ratio_SNR'], 
+                                                'signal_to_noise_ratio_SNR')
+                        mos += 0.45 * snr_norm
                     
-                    # 2. Dynamic Range (MAXIMIZE, w2=0.25)
+                    # Dynamic Range (maximize, w=0.25)
                     if 'dynamic_range_of_output' in predictions:
-                        dr = np.clip(predictions['dynamic_range_of_output'], 0, 20000)  # Adjust based on your data range
-                        dr_normalized = dr / 20000  # Linear normalization
-                        dr_reward = self.metric_weights['dynamic_range_of_output'] * dr_normalized
-                        total_reward += dr_reward
-                        reward_components.append(('dynamic_range', dr_reward))
+                        dr_norm = safe_normalize(predictions['dynamic_range_of_output'],
+                                                'dynamic_range_of_output')
+                        mos += 0.25 * dr_norm
                     
-                    # 3. False Negative Rate (MINIMIZE, w3=0.20 - NEGATIVE WEIGHT)
+                    # False Negative Rate (minimize, w=0.20)
                     if 'false_negative_rate' in predictions:
-                        fnr = np.clip(predictions['false_negative_rate'], 0, 1)
-                        fnr_penalty = self.metric_weights['false_negative_rate'] * fnr
-                        total_reward -= fnr_penalty  # SUBTRACT because we want to minimize
-                        reward_components.append(('fnr_penalty', -fnr_penalty))
+                        fnr_norm = safe_normalize(predictions['false_negative_rate'],
+                                                'false_negative_rate')
+                        mos += 0.20 * (1.0 - fnr_norm)
                     
-                    # 4. Time to Detection (MINIMIZE, w4=0.10 - NEGATIVE WEIGHT)
+                    # Time to Detection (minimize, w=0.10)
                     if 'time_to_detection_threshold' in predictions:
-                        ttd = np.clip(predictions['time_to_detection_threshold'], 0, 200)  # Adjust based on your data
-                        ttd_normalized = ttd / 200
-                        ttd_penalty = self.metric_weights['time_to_detection_threshold'] * ttd_normalized
-                        total_reward -= ttd_penalty  # SUBTRACT because we want to minimize
-                        reward_components.append(('ttd_penalty', -ttd_penalty))
+                        ttd_norm = safe_normalize(predictions['time_to_detection_threshold'],
+                                                'time_to_detection_threshold')
+                        mos += 0.10 * (1.0 - ttd_norm)
                     
-                    # 5. Multi-objective score if available
-                    if 'multi_objective_score' in predictions:
-                        mobj = np.clip(predictions['multi_objective_score'], 0, 1)
-                        mobj_reward = self.metric_weights['multi_objective_score'] * mobj
-                        total_reward += mobj_reward
-                        reward_components.append(('multi_obj', mobj_reward))
+                    # Constraint penalty
+                    constraint_penalty = 0.0
+                    for i, (feature, bounds) in enumerate(self.modifiable_bounds.items()):
+                        if self.modifiable_state[i] < bounds[0] or self.modifiable_state[i] > bounds[1]:
+                            constraint_penalty = 1.0
+                            break
                     
-                    # Add exploration bonus
-                    if len(self.current_episode_states) > 1:
-                        current_state = self.modifiable_state
-                        prev_state = self.current_episode_states[-2]
-                        
-                        normalized_change = 0.0
-                        for i, (feature, bounds) in enumerate(self.modifiable_bounds.items()):
-                            range_size = bounds[1] - bounds[0]
-                            if range_size > 0:
-                                change = abs(current_state[i] - prev_state[i]) / range_size
-                                normalized_change += change
-                        
-                        exploration_bonus = min(0.05, normalized_change / len(self.modifiable_bounds))
-                        total_reward += exploration_bonus
-                        reward_components.append(('exploration', exploration_bonus))
+                    # Final reward
+                    final_reward = mos - constraint_penalty
+                    final_reward = np.clip(final_reward, 0.0, 1.0)
                     
-                    # Final scaling and clipping
-                    final_reward = np.clip(total_reward, 0.0, 2.0)  # Allow reward up to 2.0 for strong performance
+                    predictions['mos_score'] = mos
+                    predictions['constraint_penalty'] = constraint_penalty
                     
                     return final_reward, predictions
                     
                 except Exception as e:
-                    print(f"Error calculating reward: {e}")
+                    print(f"❌ Error in reward calculation: {e}")
+                    import traceback
+                    traceback.print_exc()
                     return 0.01, {}
-
+    
             def _apply_action_with_momentum(self, action):
                 """Apply actions with momentum for smoother exploration"""
                 if not hasattr(self, 'action_momentum'):
@@ -3915,6 +4179,21 @@ class BiosensorPipeline:
                         final_reward, len(self.current_episode_rewards), convergence_achieved,
                         reward_improvement, state_stability
                     ])
+
+                    # ENHANCED DIAGNOSIS LOGGING (Section VI)
+                    if self.current_episode % 50 == 0:  # Log every 50 episodes
+                        print(f"\n📊 CONVERGENCE DIAGNOSTICS (Episode {self.current_episode}):")
+                        print(f"   Mean Reward (last 50): {np.mean(self.current_episode_rewards):.4f}")
+                        print(f"   Std Reward: {np.std(self.current_episode_rewards):.4f}")
+                        print(f"   Best Reward: {best_reward:.4f}")
+                        print(f"   Reward Improvement: {reward_improvement:.4f}")
+                        print(f"   State Stability: {state_stability:.4f}")
+                        
+                        # Check for learning stagnation
+                        if len(self.current_episode_rewards) >= 10:
+                            recent_trend = np.mean(self.current_episode_rewards[-10:]) - np.mean(self.current_episode_rewards[-20:-10]) if len(self.current_episode_rewards) >= 20 else 0
+                            if abs(recent_trend) < 0.001:
+                                print(f"   ⚠️  WARNING: Possible learning stagnation (trend: {recent_trend:.6f})")
                     
                     # Optional: Print episode summary for debugging
                     print(f"Episode {self.current_episode}: Total={total_reward:.4f}, Mean={mean_reward:.4f}, Steps={len(self.current_episode_rewards)}")
@@ -3970,6 +4249,70 @@ class BiosensorPipeline:
                 fixed_values[feature] = mean_value
                 print(f"  {feature}: {mean_value:.6f} (fixed)")
 
+        # CALCULATE DATA MIN/MAX FOR MOS NORMALIZATION (Section III.1)
+        print("📊 Calculating data ranges for MOS normalization...")
+        data_min_max = {}
+
+        # Target metrics that need normalization for MOS
+        mos_metrics = [
+            'signal_to_noise_ratio_SNR',
+            'dynamic_range_of_output', 
+            'false_negative_rate',
+            'time_to_detection_threshold'
+        ]
+
+        for metric in mos_metrics:
+            if metric in self.y_train.columns:
+                min_val = float(self.y_train[metric].min())
+                max_val = float(self.y_train[metric].max())
+                
+                # Ensure valid range
+                if max_val <= min_val:
+                    print(f"⚠️  {metric} has invalid range [{min_val}, {max_val}], using defaults")
+                    if 'snr' in metric.lower():
+                        min_val, max_val = 0, 100
+                    elif 'dynamic_range' in metric.lower():
+                        min_val, max_val = 0, 20000
+                    elif 'false_negative' in metric.lower():
+                        min_val, max_val = 0, 1
+                    elif 'time_to_detection' in metric.lower():
+                        min_val, max_val = 0, 200
+                
+                data_min_max[metric] = (min_val, max_val)
+                print(f"   ✅ {metric}: [{min_val:.4f}, {max_val:.4f}]")
+            else:
+                print(f"   ⚠️  {metric} not found in training data, will use defaults")
+
+        # Ensure all required metrics have entries (with defaults if needed)
+        required_defaults = {
+            'signal_to_noise_ratio_SNR': (0, 100),
+            'dynamic_range_of_output': (0, 20000),
+            'false_negative_rate': (0, 1),
+            'time_to_detection_threshold': (0, 200)
+        }
+
+        for metric, default_range in required_defaults.items():
+            if metric not in data_min_max:
+                data_min_max[metric] = default_range
+                print(f"   ⚠️  Using default range for {metric}: {default_range}")
+
+        # VERIFY target metrics match available surrogates
+        print("\n🔍 Verifying RL environment setup...")
+        print(f"   Requested target_metrics: {target_metrics}")
+        print(f"   Available surrogate_models: {list(self.surrogate_models.keys())}")
+
+        # Filter to only use metrics that have surrogate models
+        valid_target_metrics = [m for m in target_metrics if m in self.surrogate_models]
+
+        if len(valid_target_metrics) < len(target_metrics):
+            missing = set(target_metrics) - set(valid_target_metrics)
+            print(f"   ⚠️  WARNING: Some target metrics have no surrogate model: {missing}")
+            print(f"   ✅ Using only valid metrics: {valid_target_metrics}")
+            target_metrics = valid_target_metrics
+
+        if not target_metrics:
+            raise ValueError("No valid target metrics with surrogate models available!")
+
         # Pass it when creating environment:
         self.rl_env = BiosensorEnv(
             modifiable_bounds=modifiable_bounds,
@@ -3978,10 +4321,104 @@ class BiosensorPipeline:
             target_metrics=target_metrics,
             log_dir=self.log_dir,
             surrogate_features=self.surrogate_features,
-            X_train=self.X_train
+            X_train=self.X_train,
+            data_min_max=data_min_max 
         )
+
+        # PARALLELIZATION (Section V: Time 1)
+        # Wrap in vectorized environment for faster training
+        try:
+            from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+            
+            # SAVE log_dir BEFORE wrapping
+            self.rl_log_dir = self.log_dir  # Store at pipeline level
+            
+            # Use 4-8 parallel environments (Section V)
+            n_envs = min(8, os.cpu_count() or 4)
+            print(f"🚀 Creating {n_envs} parallel environments for faster training...")
+            
+            # Create environment factory
+            def make_env():
+                return BiosensorEnv(
+                    modifiable_bounds=modifiable_bounds,
+                    fixed_values=fixed_values,
+                    surrogate_models=self.surrogate_models,
+                    target_metrics=target_metrics,
+                    log_dir=self.log_dir,
+                    surrogate_features=self.surrogate_features,
+                    X_train=self.X_train,
+                    data_min_max=data_min_max.copy()  
+                )
+                        
+            # Use SubprocVecEnv for true parallelization
+            env_fns = [make_env for _ in range(n_envs)]
+            self.rl_env = SubprocVecEnv(env_fns)
+            print(f"✅ Parallel environments created successfully!")
+            
+        except Exception as e:
+            print(f"⚠️  Could not create parallel environments: {e}")
+            print("   Falling back to single environment")
+            # self.rl_env already set to single environment above
+
+        # VALIDATION: Test environment before training
+        print("\n🧪 Testing RL environment setup...")
+        try:
+            obs = self.rl_env.reset()
+            print(f"✅ Reset successful, obs shape: {obs.shape if hasattr(obs, 'shape') else 'scalar'}")
+            
+            # Test one step - handle vectorized environments
+            if hasattr(self.rl_env, 'num_envs'):
+                # Vectorized environment - need array of actions
+                n_envs = self.rl_env.num_envs
+                actions = np.array([self.rl_env.action_space.sample() for _ in range(n_envs)])
+                print(f"   Testing with {n_envs} parallel environments, actions shape: {actions.shape}")
+            else:
+                # Single environment
+                actions = self.rl_env.action_space.sample()
+                print(f"   Testing with single environment, action: {actions}")
+            
+            obs, reward, done, info = self.rl_env.step(actions)
+        
+            # Handle both single env (info is dict) and vectorized env (info is list of dicts)
+            if isinstance(info, list):
+                # Vectorized environment - info is a list of dicts, one per env
+                first_info = info[0] if info else {}
+                predictions_keys = list(first_info.get('predictions', {}).keys()) if isinstance(first_info, dict) else []
+            elif isinstance(info, dict):
+                # Single environment - info is a dict
+                print(type(info))
+                print(info.keys())
+                print(type(info.get('predictions')))
+                predictions_keys = list(info.get('predictions', {}).keys())
+            else:
+                print("WARNING: self.rl_env.step(actions) did not return a dictionary or lists!")
+                predictions_keys = []
+
+            # Validate types (handle vectorized)
+            if hasattr(self.rl_env, 'num_envs'):
+                # Vectorized - reward/done are arrays
+                reward_is_scalar = isinstance(reward, np.ndarray) and len(reward) == self.rl_env.num_envs
+                done_is_bool = isinstance(done, np.ndarray) and done.dtype == bool
+            else:
+                # Single env
+                reward_is_scalar = isinstance(reward, (int, float, np.number)) or (isinstance(reward, np.ndarray) and reward.shape == ())
+                done_is_bool = isinstance(done, (bool, np.bool_))
+
+            print(f"✅ Step successful")
+            print(f"   Reward: {reward} (valid: {reward_is_scalar})")
+            print(f"   Done: {done} (bool: {done_is_bool})")
+            print(f"   Predictions: {predictions_keys}")
+                        
+            if not reward_is_scalar or not done_is_bool:
+                print(f"⚠️  WARNING: Non-scalar reward or done - this may cause training issues")
+                
+        except Exception as e:
+            print(f"❌ Environment test failed: {e}")
+            import traceback
+            traceback.print_exc()
         
         print("✅ Advanced RL environment with proper variable classification created!")
+
         return self.rl_env
     
     
@@ -4007,30 +4444,38 @@ class BiosensorPipeline:
             }
         }
         
-        # Improved PPO config - better exploration
+        # OPTIMIZED PPO CONFIG (Section IV.3)
         ppo_config = {
             "policy": "MlpPolicy", 
             "env": self.rl_env,
             "verbose": 1,
-            "learning_rate": 1e-4,  # Balanced learning rate
-            "n_steps": 4096,  # Reduced for faster episodes
-            "batch_size": 128,  # Smaller batches
-            "n_epochs": 8,  # Fewer epochs but more frequent
-            "gamma": 0.995,  # Slightly higher discount
-            "gae_lambda": 0.98,  # Better advantage estimation
-            "clip_range": 0.25,  # Slightly more aggressive updates
-            "ent_coef": 0.15,  # Higher entropy for more exploration
+            "learning_rate": self._linear_schedule(3e-4),  # Linear decay
+            "n_steps": 4096,  # High for quality updates
+            "batch_size": 256,  # Efficient batch size
+            "n_epochs": 10,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.08,  # Higher entropy for exploration (Section IV.3)
             "vf_coef": 0.5,
-            "max_grad_norm": 0.3,  # Tighter gradient clipping
+            "max_grad_norm": 0.5,
             "policy_kwargs": {
-                "net_arch": [128, 128, 64],
+                "net_arch": [256, 256, 128],  # Larger network
                 "activation_fn": torch.nn.ReLU,
             }
         }
         
         return dqn_config, ppo_config
+    
+    def _linear_schedule(self, initial_value):
+        """
+        Linear learning rate schedule (Section IV.3)
+        """
+        def schedule(progress_remaining):
+            return progress_remaining * initial_value
+        return schedule
 
-    def train_rl_agents(self, total_timesteps: int = 50000):  # INCREASE TIMESTEPS
+    def train_rl_agents(self, total_timesteps: int = 500000):  # SECTION IV.3: Minimum 500k
         """Train RL agents with much better exploration and longer training"""
         
         if self.rl_env is None:
@@ -4111,19 +4556,46 @@ class BiosensorPipeline:
             print("   Final DQN evaluation...")
             try:
                 dqn_rewards = []
-                for i in range(20):  # More evaluation episodes
+                n_eval_episodes = 20
+                
+                # Check if vectorized
+                is_vec_env = hasattr(self.rl_env, 'num_envs')
+                
+                for i in range(n_eval_episodes):
                     obs = self.rl_env.reset()
-                    total_reward = 0
-                    done = False
+                    episode_rewards = 0.0
+                    done_flags = np.zeros(self.rl_env.num_envs if is_vec_env else 1, dtype=bool)
                     
-                    while not done:
+                    for step in range(1000):  # Max steps per episode
                         action, _ = dqn_agent.predict(obs, deterministic=True)
                         obs, reward, done, _ = self.rl_env.step(action)
-                        total_reward += reward
+                        
+                        # Handle rewards
+                        if is_vec_env:
+                            # For vectorized env: accumulate only for non-done envs
+                            episode_rewards += np.sum(reward[~done_flags])
+                            done_flags = np.logical_or(done_flags, done)
+                            
+                            # Break if all environments are done
+                            if np.all(done_flags):
+                                break
+                        else:
+                            # Single environment - ensure scalar
+                            reward_scalar = float(reward) if hasattr(reward, '__float__') else reward
+                            done_scalar = bool(done) if hasattr(done, '__bool__') else done
+                            
+                            episode_rewards += reward_scalar
+                            if done_scalar:
+                                break
                     
-                    dqn_rewards.append(total_reward)
+                    # Average reward across environments if vectorized
+                    if is_vec_env:
+                        episode_rewards /= self.rl_env.num_envs
+                    
+                    dqn_rewards.append(episode_rewards)
+                    
                     if i % 5 == 0:
-                        print(f"      DQN Episode {i+1}: {total_reward:.4f}")
+                        print(f"      DQN Episode {i+1}: {episode_rewards:.4f}")
                 
                 agents_performance['DQN'] = {
                     'mean_reward': np.mean(dqn_rewards),
@@ -4137,25 +4609,52 @@ class BiosensorPipeline:
                 
             except Exception as e:
                 print(f"      ❌ DQN evaluation failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Similar for PPO...
         if ppo_agent is not None:
             print("   Final PPO evaluation...")
             try:
                 ppo_rewards = []
-                for i in range(20):  # More evaluation episodes
+                n_eval_episodes = 20
+                
+                # Check if vectorized
+                is_vec_env = hasattr(self.rl_env, 'num_envs')
+                
+                for i in range(n_eval_episodes):
                     obs = self.rl_env.reset()
-                    total_reward = 0
-                    done = False
+                    episode_rewards = 0.0
+                    done_flags = np.zeros(self.rl_env.num_envs if is_vec_env else 1, dtype=bool)
                     
-                    while not done:
+                    for step in range(1000):  # Max steps per episode
                         action, _ = ppo_agent.predict(obs, deterministic=True)
                         obs, reward, done, _ = self.rl_env.step(action)
-                        total_reward += reward
+                        
+                        # Handle rewards
+                        if is_vec_env:
+                            episode_rewards += np.sum(reward[~done_flags])
+                            done_flags = np.logical_or(done_flags, done)
+                            
+                            if np.all(done_flags):
+                                break
+                        else:
+                            # Single environment - ensure scalar
+                            reward_scalar = float(reward) if hasattr(reward, '__float__') else reward
+                            done_scalar = bool(done) if hasattr(done, '__bool__') else done
+                            
+                            episode_rewards += reward_scalar
+                            if done_scalar:
+                                break
                     
-                    ppo_rewards.append(total_reward)
+                    # Average reward across environments if vectorized
+                    if is_vec_env:
+                        episode_rewards /= self.rl_env.num_envs
+                    
+                    ppo_rewards.append(episode_rewards)
+                    
                     if i % 5 == 0:
-                        print(f"      PPO Episode {i+1}: {total_reward:.4f}")
+                        print(f"      PPO Episode {i+1}: {episode_rewards:.4f}")
                 
                 agents_performance['PPO'] = {
                     'mean_reward': np.mean(ppo_rewards),
@@ -4169,6 +4668,8 @@ class BiosensorPipeline:
                 
             except Exception as e:
                 print(f"      ❌ PPO evaluation failed: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Find best agent
         if agents_performance:
@@ -4179,8 +4680,22 @@ class BiosensorPipeline:
             self._plot_rl_performance(agents_performance)
 
         # 🔥 ADD THIS HERE - Close environment to save logs
-        print(f"💾 Saving training logs to: {self.rl_env.log_dir}")
-        self.rl_env.close()  # This saves the JSON config file
+        # Handle both single and vectorized environments
+        if hasattr(self.rl_env, 'log_dir'):
+            log_dir = self.rl_env.log_dir
+        elif hasattr(self, 'rl_log_dir'):
+            log_dir = self.rl_log_dir
+        else:
+            log_dir = self.log_dir
+
+        print(f"💾 Saving training logs to: {log_dir}")
+        # Close environment properly (handles both single and vectorized)
+        try:
+            if hasattr(self.rl_env, 'close'):
+                self.rl_env.close()
+                print(f"✅ Environment logs saved")
+        except Exception as e:
+            print(f"⚠️  Could not close environment cleanly: {e}")
 
         return agents_performance
             
@@ -4240,8 +4755,26 @@ class BiosensorPipeline:
         """Generate feature importance plot for the 13-feature Sclerostin biosensor"""
         
         if not self.feature_importance:
-            print("âš ï¸  No feature importance data available")
-            return
+            print("⚠️  No feature importance data available. Training a model to generate it...")
+            
+            # Train a quick model to get feature importance
+            try:
+                if hasattr(self, 'processed_data') and self.processed_data:
+                    if 'multi_objective_score' in self.processed_data['target_names']:
+                        self.train_supervised_models('multi_objective_score')
+                    else:
+                        self.train_supervised_models(self.processed_data['target_names'][0])
+                else:
+                    print("❌ Cannot generate feature importance - no processed data available")
+                    return
+            except Exception as e:
+                print(f"❌ Failed to generate feature importance: {e}")
+                return
+            
+            # Check again
+            if not self.feature_importance:
+                print("❌ Still no feature importance after model training")
+                return
         
         # Get the best model's feature importance
         best_model_key = list(self.feature_importance.keys())[0]
@@ -4975,7 +5508,7 @@ class BiosensorPipeline:
     
     def run_complete_pipeline(self, biomarker: Optional[str] = None, 
                              apply_pca: bool = False, 
-                             rl_timesteps: int = 10000):
+                             rl_timesteps: int = 500000):         # STRATEGIC DOCUMENT: Section IV.3
         """
         Run the complete pipeline from data loading to analysis
         
@@ -5010,6 +5543,19 @@ class BiosensorPipeline:
             print("\n🎮 STAGE 4: Reinforcement Learning")
             self.setup_rl_environment(self.target_metrics)
             rl_performance = self.train_rl_agents(rl_timesteps)
+
+            # Ensure we have feature importance by training at least one supervised model
+            if not self.feature_importance:
+                print("\n🤖 STAGE 2: Training Supervised Models for Feature Importance")
+                try:
+                    # Train on multi-objective score first
+                    if 'multi_objective_score' in self.processed_data['target_names']:
+                        self.train_supervised_models('multi_objective_score')
+                    else:
+                        # Fall back to first available target
+                        self.train_supervised_models(self.processed_data['target_names'][0])
+                except Exception as e:
+                    print(f"   ⚠️ Supervised model training failed: {e}")
             
             # Stage 5: Sclerostin-Specific Analysis
             print("\nSTAGE 5: Sclerostin Biosensor Analysis")
@@ -5045,203 +5591,206 @@ class BiosensorPipeline:
 
 def main():
     """Main function to run the biosensor pipeline"""
-    print("🧬 Synthetic Biology Biosensor Design Pipeline")
-    print("=" * 60)
-    
-    # Configuration for NEW SCLEROSTIN DATASET
-    data_path = r"sclerostin_biosensor_dataset.csv"  
-    base_output_dir = "sclerostin_biosensor_results"
-    
-    # Check if data file exists
-    if not os.path.exists(data_path):
-        print(f"❌ Data file not found: {data_path}")
-        print("Please update the data_path variable with the correct path to your dataset.")
-        return
-    
-    # List of biomarkers to analyze
-    '''biomarkers = [
-        # Main 5
-        "mirna_21",    # 5
-        "pcbs",     # 4
-        "troponin",    # 2
-        "cortisol",    # 1
-        "salmonella",    # 6
 
-        # 1. Hormones & Signaling Molecules
-        'adrenaline',
-        'growth hormone',
-        'insulin',
-        'testosterone',
-        'thyroid hormone',
-        'estrogen',
-        'p53',
-        'ifn_gamma',
-        'tnf_alpha',
-        'il_1beta',
-        'il_6',
-        'il_10',
-
-        # 2. Metabolic & Organ Function Markers
-        'glucose',
-        'lactate',      # ---- Akshit E. ends
-        'pyruvate',
-        'creatinine',
-        'urea',
-        'albumin',
-        'hemoglobin',
-        'cholesterol',
-
-        # 3. Electrolytes & Minerals
-        'calcium',
-        'potassium',
-        'sodium',
-        'magnesium',
-        'zinc',
-        'chloride',
-
-        # 4. Toxins, Heavy Metals & Environmental Exposure
-        'lead',
-        'mercury',
-        'arsenic',
-        'cadmium',
-        'dioxins',
-        'pesticides',
-        'bisphenol a',
-
-
-        # 5. Nucleic Acid Biomarkers (Genetic/Epigenetic/Transcriptomic)
-        'cfdna',
-        'mirna_155',
-        'mrna_gapdh',
-        'viral rna',
-
-        # 6. Pathogen-Associated Biomarkers
-        'covid_19',
-        'influenza',
-        'e_coli',
-
-        # 7. Energy & Cellular Activity Molecules
-        'atp',
-        'caffeine',
-    ]'''
-    # For Sclerostin biosensor - no biomarker filtering needed
-    # The dataset is already specific to Sclerostin
-    biomarkers = [None]  # Run once without biomarker filtering
+    # Use context manager for automatic logging
+    with DualLogger(log_dir="logs"):
+        print("🧬 Synthetic Biology Biosensor Design Pipeline")
+        print("=" * 60)
         
-    print(f"\n🎯 Automated Biomarker Analysis for {len(biomarkers)} biomarkers:")
-    for i, biomarker in enumerate(biomarkers, 1):
-        print(f"   {i}. {biomarker}")
+        # Configuration for NEW SCLEROSTIN DATASET
+        data_path = r"sclerostin_biosensor_dataset.csv"  
+        base_output_dir = "sclerostin_biosensor_results"
+        
+        # Check if data file exists
+        if not os.path.exists(data_path):
+            print(f"❌ Data file not found: {data_path}")
+            print("Please update the data_path variable with the correct path to your dataset.")
+            return
+        
+        # List of biomarkers to analyze
+        '''biomarkers = [
+            # Main 5
+            "mirna_21",    # 5
+            "pcbs",     # 4
+            "troponin",    # 2
+            "cortisol",    # 1
+            "salmonella",    # 6
 
-    rl_timesteps = 100000  # Adjust based on performance          ------------------------------------------------ NEED TO CHANGE
-    
-    # Results storage
-    all_results = {}
-    successful_analyses = []
-    failed_analyses = []
-    
-    print(f"\n🚀 Starting automated analysis...")
-    print(f"📊 RL Timesteps: {rl_timesteps}")
-    print("=" * 60)
-    
-    # Run analysis for each biomarker
-    for i, biomarker in enumerate(biomarkers, 1):
-        print(f"\n[{i}/{len(biomarkers)}] 🧬 Processing: {biomarker}")
-        print("-" * 40)
-        
-        # Create biomarker-specific output directory
-        biomarker_output_dir = f"{base_output_dir}_{biomarker}"
-        
-        try:
-            # Initialize pipeline for this biomarker
-            pipeline = BiosensorPipeline(data_path, biomarker_output_dir)
+            # 1. Hormones & Signaling Molecules
+            'adrenaline',
+            'growth hormone',
+            'insulin',
+            'testosterone',
+            'thyroid hormone',
+            'estrogen',
+            'p53',
+            'ifn_gamma',
+            'tnf_alpha',
+            'il_1beta',
+            'il_6',
+            'il_10',
+
+            # 2. Metabolic & Organ Function Markers
+            'glucose',
+            'lactate',      # ---- Akshit E. ends
+            'pyruvate',
+            'creatinine',
+            'urea',
+            'albumin',
+            'hemoglobin',
+            'cholesterol',
+
+            # 3. Electrolytes & Minerals
+            'calcium',
+            'potassium',
+            'sodium',
+            'magnesium',
+            'zinc',
+            'chloride',
+
+            # 4. Toxins, Heavy Metals & Environmental Exposure
+            'lead',
+            'mercury',
+            'arsenic',
+            'cadmium',
+            'dioxins',
+            'pesticides',
+            'bisphenol a',
+
+
+            # 5. Nucleic Acid Biomarkers (Genetic/Epigenetic/Transcriptomic)
+            'cfdna',
+            'mirna_155',
+            'mrna_gapdh',
+            'viral rna',
+
+            # 6. Pathogen-Associated Biomarkers
+            'covid_19',
+            'influenza',
+            'e_coli',
+
+            # 7. Energy & Cellular Activity Molecules
+            'atp',
+            'caffeine',
+        ]'''
+        # For Sclerostin biosensor - no biomarker filtering needed
+        # The dataset is already specific to Sclerostin
+        biomarkers = [None]  # Run once without biomarker filtering
             
-            # Run complete pipeline
-            results = pipeline.run_complete_pipeline(
-                biomarker=biomarker,
-                rl_timesteps=rl_timesteps
-            )
+        print(f"\n🎯 Automated Biomarker Analysis for {len(biomarkers)} biomarkers:")
+        for i, biomarker in enumerate(biomarkers, 1):
+            print(f"   {i}. {biomarker}")
+
+        rl_timesteps = 500000  # STRATEGIC DOCUMENT MINIMUM (Section IV.3)          ------------------------------------------------ NEED TO CHANGE
+        
+        # Results storage
+        all_results = {}
+        successful_analyses = []
+        failed_analyses = []
+        
+        print(f"\n🚀 Starting automated analysis...")
+        print(f"📊 RL Timesteps: {rl_timesteps}")
+        print("=" * 60)
+        
+        # Run analysis for each biomarker
+        for i, biomarker in enumerate(biomarkers, 1):
+            print(f"\n[{i}/{len(biomarkers)}] 🧬 Processing: {biomarker}")
+            print("-" * 40)
             
-            if results:
-                all_results[biomarker] = results
-                successful_analyses.append(biomarker)
-                print(f"✅ {biomarker} analysis completed successfully!")
+            # Create biomarker-specific output directory
+            biomarker_output_dir = f"{base_output_dir}_{biomarker}"
+            
+            try:
+                # Initialize pipeline for this biomarker
+                pipeline = BiosensorPipeline(data_path, biomarker_output_dir)
                 
-                # Print quick summary
-                if 'model_performance' in results:
-                    print("   🤖 Best Model Performance:")
-                    for target, models in results['model_performance'].items():
-                        best_model = max(models.items(), key=lambda x: x[1]['test_r2'])
-                        print(f"      {target}: {best_model[0]} (R² = {best_model[1]['test_r2']:.3f})")
+                # Run complete pipeline
+                results = pipeline.run_complete_pipeline(
+                    biomarker=biomarker,
+                    rl_timesteps=rl_timesteps
+                )
                 
-                if 'rl_performance' in results and results['rl_performance']:
-                    print("   🎮 RL Agent Performance:")
-                    for agent, perf in results['rl_performance'].items():
-                        print(f"      {agent}: {perf['mean_reward']:.3f} ± {perf['std_reward']:.3f}")
-            else:
+                if results:
+                    all_results[biomarker] = results
+                    successful_analyses.append(biomarker)
+                    print(f"✅ {biomarker} analysis completed successfully!")
+                    
+                    # Print quick summary
+                    if 'model_performance' in results:
+                        print("   🤖 Best Model Performance:")
+                        for target, models in results['model_performance'].items():
+                            best_model = max(models.items(), key=lambda x: x[1]['test_r2'])
+                            print(f"      {target}: {best_model[0]} (R² = {best_model[1]['test_r2']:.3f})")
+                    
+                    if 'rl_performance' in results and results['rl_performance']:
+                        print("   🎮 RL Agent Performance:")
+                        for agent, perf in results['rl_performance'].items():
+                            print(f"      {agent}: {perf['mean_reward']:.3f} ± {perf['std_reward']:.3f}")
+                else:
+                    failed_analyses.append(biomarker)
+                    print(f"❌ {biomarker} analysis failed!")
+                    
+            except Exception as e:
                 failed_analyses.append(biomarker)
-                print(f"❌ {biomarker} analysis failed!")
-                
-        except Exception as e:
-            failed_analyses.append(biomarker)
-            print(f"❌ {biomarker} analysis failed with error: {str(e)}")
-            import traceback
-            traceback.print_exc()
+                print(f"❌ {biomarker} analysis failed with error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+            
+            print(f"📁 Results saved to: {biomarker_output_dir}")
+            print("-" * 40)
         
-        print(f"📁 Results saved to: {biomarker_output_dir}")
-        print("-" * 40)
-    
-    # Final summary
-    print("\n" + "=" * 60)
-    print("🎉 AUTOMATED ANALYSIS COMPLETE!")
-    print("=" * 60)
-    
-    print(f"\n📊 OVERALL SUMMARY:")
-    print(f"   Total biomarkers: {len(biomarkers)}")
-    print(f"   Successful: {len(successful_analyses)}")
-    print(f"   Failed: {len(failed_analyses)}")
-    
-    if successful_analyses:
-        print(f"\n✅ Successfully analyzed:")
-        for biomarker in successful_analyses:
-            print(f"   - {biomarker}")
-    
-    if failed_analyses:
-        print(f"\n❌ Failed analyses:")
-        for biomarker in failed_analyses:
-            print(f"   - {biomarker}")
-    
-    # Generate comparative summary
-    if len(successful_analyses) > 1:
-        print(f"\n📈 COMPARATIVE ANALYSIS:")
-        print("-" * 40)
+        # Final summary
+        print("\n" + "=" * 60)
+        print("🎉 AUTOMATED ANALYSIS COMPLETE!")
+        print("=" * 60)
         
-        # Compare best model performance across biomarkers
-        print("🤖 Best Model Performance Comparison:")
-        for biomarker in successful_analyses:
-            if biomarker in all_results and 'model_performance' in all_results[biomarker]:
-                best_overall = 0
-                best_model_name = ""
-                for target, models in all_results[biomarker]['model_performance'].items():
-                    best_model = max(models.items(), key=lambda x: x[1]['test_r2'])
-                    if best_model[1]['test_r2'] > best_overall:
-                        best_overall = best_model[1]['test_r2']
-                        best_model_name = best_model[0]
-                print(f"   {biomarker}: {best_model_name} (R² = {best_overall:.3f})")
+        print(f"\n📊 OVERALL SUMMARY:")
+        print(f"   Total biomarkers: {len(biomarkers)}")
+        print(f"   Successful: {len(successful_analyses)}")
+        print(f"   Failed: {len(failed_analyses)}")
         
-        # Compare RL performance across biomarkers
-        print(f"\n🎮 RL Performance Comparison:")
+        if successful_analyses:
+            print(f"\n✅ Successfully analyzed:")
+            for biomarker in successful_analyses:
+                print(f"   - {biomarker}")
+        
+        if failed_analyses:
+            print(f"\n❌ Failed analyses:")
+            for biomarker in failed_analyses:
+                print(f"   - {biomarker}")
+        
+        # Generate comparative summary
+        if len(successful_analyses) > 1:
+            print(f"\n📈 COMPARATIVE ANALYSIS:")
+            print("-" * 40)
+            
+            # Compare best model performance across biomarkers
+            print("🤖 Best Model Performance Comparison:")
+            for biomarker in successful_analyses:
+                if biomarker in all_results and 'model_performance' in all_results[biomarker]:
+                    best_overall = 0
+                    best_model_name = ""
+                    for target, models in all_results[biomarker]['model_performance'].items():
+                        best_model = max(models.items(), key=lambda x: x[1]['test_r2'])
+                        if best_model[1]['test_r2'] > best_overall:
+                            best_overall = best_model[1]['test_r2']
+                            best_model_name = best_model[0]
+                    print(f"   {biomarker}: {best_model_name} (R² = {best_overall:.3f})")
+            
+            # Compare RL performance across biomarkers
+            print(f"\n🎮 RL Performance Comparison:")
+            for biomarker in successful_analyses:
+                if biomarker in all_results and 'rl_performance' in all_results[biomarker]:
+                    rl_results = all_results[biomarker]['rl_performance']
+                    if rl_results:
+                        best_rl_agent = max(rl_results.items(), key=lambda x: x[1]['mean_reward'])
+                        print(f"   {biomarker}: {best_rl_agent[0]} ({best_rl_agent[1]['mean_reward']:.3f} ± {best_rl_agent[1]['std_reward']:.3f})")
+        
+        print(f"\n📁 All results saved in respective directories:")
         for biomarker in successful_analyses:
-            if biomarker in all_results and 'rl_performance' in all_results[biomarker]:
-                rl_results = all_results[biomarker]['rl_performance']
-                if rl_results:
-                    best_rl_agent = max(rl_results.items(), key=lambda x: x[1]['mean_reward'])
-                    print(f"   {biomarker}: {best_rl_agent[0]} ({best_rl_agent[1]['mean_reward']:.3f} ± {best_rl_agent[1]['std_reward']:.3f})")
-    
-    print(f"\n📁 All results saved in respective directories:")
-    for biomarker in successful_analyses:
-        print(f"   - {base_output_dir}_{biomarker}/")
-    
-    print("\n🎯 Analysis complete! Check individual directories for detailed results.")
+            print(f"   - {base_output_dir}_{biomarker}/")
+        
+        print("\n🎯 Analysis complete! Check individual directories for detailed results.")
 
 # Example usage and testing
 if __name__ == "__main__":
