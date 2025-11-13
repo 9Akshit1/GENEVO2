@@ -1368,6 +1368,20 @@ class BiosensorPipeline:
             # Sort by correlation and take top 5
             top_pairs = sorted(top_pairs, key=lambda x: x[2], reverse=True)[:5]
             
+            # FIX: Ensure feature names are consistent (fix typos)
+            feature_name_fixes = {
+                'transcriptional_promoter_strenggth': 'transcriptional_promoter_strength'
+            }
+
+            # Apply fixes to all DataFrames
+            for old_name, new_name in feature_name_fixes.items():
+                if old_name in X.columns:
+                    X = X.rename(columns={old_name: new_name})
+                if hasattr(self, 'X_train') and old_name in self.X_train.columns:
+                    self.X_train = self.X_train.rename(columns={old_name: new_name})
+                if hasattr(self, 'X_test') and old_name in self.X_test.columns:
+                    self.X_test = self.X_test.rename(columns={old_name: new_name})
+
             for feat1, feat2, corr in top_pairs:
                 X_enhanced[f'{feat1}_x_{feat2}'] = X[feat1] * X[feat2]
                 X_enhanced[f'{feat1}_div_{feat2}'] = X[feat1] / (X[feat2] + 1e-8)
@@ -3836,46 +3850,59 @@ class BiosensorPipeline:
                 
                 # Initialize tracking variables
                 self.step_count = 0
-                self.max_steps = 100  # Increase from 50
+                self.max_steps = 150  # ← INCREASED from 100
                 self.reward_history = []
                 self.best_reward = float('-inf')
                 self.best_states = []
+
+                # ← ADD THESE NEW LINES
+                self.previous_state = None
+                self.visited_states = []  # Track state diversity
+                self.state_visit_counts = {}  # Count visits to similar states
 
                 # Add these missing attributes
                 self.current_episode_rewards = []
                 self.current_episode_states = []
                 self.current_episode_actions = []
                 self.current_episode_predictions = []
-                
-                # ACTION SPACE TRANSFORMATION (Section IV.1)
-                # Discrete actions for computational efficiency
+
+                # CONTINUOUS ACTION SPACE for fine-grained control
+                print(f"   DEBUG: n_modifiable = {self.n_modifiable}")
+                print(f"   DEBUG: modifiable_features = {self.modifiable_features}")
+
+                # DISCRETE ACTION SPACE with multiplicative factors
                 self.action_mapping = {}
                 action_idx = 0
 
-                # For each modifiable continuous feature: 3 actions (decrease, no-op, increase)
                 for feature in self.continuous_features:
-                    self.action_mapping[action_idx] = ('continuous', feature, 'decrease', 0.9)  # 10% decrease
+                    # 5 discrete actions per continuous feature
+                    self.action_mapping[action_idx] = ('continuous', feature, 'large_decrease', 0.85)
                     action_idx += 1
-                    self.action_mapping[action_idx] = ('continuous', feature, 'keep', 1.0)  # NO-OP
+                    self.action_mapping[action_idx] = ('continuous', feature, 'small_decrease', 0.95)
                     action_idx += 1
-                    self.action_mapping[action_idx] = ('continuous', feature, 'increase', 1.1)  # 10% increase
+                    self.action_mapping[action_idx] = ('continuous', feature, 'keep', 1.0)
+                    action_idx += 1
+                    self.action_mapping[action_idx] = ('continuous', feature, 'small_increase', 1.05)
+                    action_idx += 1
+                    self.action_mapping[action_idx] = ('continuous', feature, 'large_increase', 1.15)
                     action_idx += 1
 
-                # For each categorical feature: N actions (one per category)
+                # Categorical features (unchanged)
                 for feature, categories in self.categorical_features.items():
                     for category in categories:
                         self.action_mapping[action_idx] = ('categorical', feature, 'set', category)
                         action_idx += 1
 
-                # Total discrete actions
+                # Discrete action space (compatible with DQN)
                 self.action_space = spaces.Discrete(len(self.action_mapping))
 
-                print(f"   Discrete action space: {len(self.action_mapping)} total actions")
-                print(f"   - Continuous features: {len(self.continuous_features)} × 3 = {len(self.continuous_features) * 3}")
+                print(f"   ✅ Discrete action space: {len(self.action_mapping)} actions")
+                print(f"   - Continuous features: {len(self.continuous_features)} × 5 = {len(self.continuous_features) * 5}")
                 print(f"   - Categorical features: {sum(len(cats) for cats in self.categorical_features.values())}")
                 
-                # Observation space: modifiable features + 6 context values (added MOS)
-                obs_size = self.n_modifiable + 6  # +6 for context info (including predicted MOS)
+                # EXPANDED observation space
+                # = 9 (modifiable) + 4 (target predictions) + 4 (target gaps) + 6 (context) + 9 (bounds utilization)
+                obs_size = self.n_modifiable + 4 + 4 + 6 + self.n_modifiable  # = 32 total
                 self.observation_space = spaces.Box(
                     low=-3.0,
                     high=3.0,
@@ -4005,65 +4032,32 @@ class BiosensorPipeline:
                     headers.extend([f'pred_{metric}' for metric in self.target_metrics])
                     writer.writerow(headers)
                 
-                # Initialize trajectory evolution CSV with the specified columns
+                # Initialize trajectory evolution CSV with CORRECT headers for Sclerostin
                 trajectory_log_path = os.path.join(self.log_dir, "trajectory_evolution.csv")
                 with open(trajectory_log_path, 'w', newline='') as f:
                     writer = csv.writer(f)
                     
-                    # Define the specific column headers as requested
-                    headers = [
-                        'episode', 'step',
-                        # Value columns
-                        'reporter_maturation_time_value', 'env_intrinsic_noise_level_value', 'reporter_signal_strength_value',
-                        'terminator_stability_value', 'arch_complexity_value', 'env_translational_variability_value',
-                        'promoter_strength_value', 'env_oxidative_stress_value', 'env_dynamic_stress_value',
-                        'arch_regulatory_elements_value', 'env_resource_competition_value', 'sim_mRNA_degradation_rate_value',
-                        'rbs_temperature_sensitivity_value', 'sim_protein_degradation_rate_value', 'copy_multiplier_value',
-                        'env_pH_actual_value', 'env_total_stress_value', 'env_noise_frequency_value',
-                        'target_biomarker_binding_affinity_value', 'env_metabolic_flux_noise_value', 'copy_noise_factor_value',
-                        'promoter_noise_sensitivity_value', 'terminator_efficiency_value', 'concentration_ratio_value',
-                        'sim_transcription_rate_value', 'promoter_leakiness_value', 'env_ionic_strength_value',
-                        'env_immune_signal_level_value', 'env_temperature_actual_value', 'target_biomarker_threshold_value',
-                        'conc_category_Low_value', 'env_noise_amplitude_modulation_value', 'env_metabolic_load_value',
-                        'env_static_stress_value', 'env_temperature_variation_value', 'sim_random_seed_value',
-                        'env_pH_variation_value', 'env_extrinsic_noise_level_value', 'sim_translation_rate_value',
-                        'env_target_biomarker_concentration_value', 'env_noise_autocorrelation_value', 'rbs_efficiency_value',
-                        'env_transcriptional_bursting_value',
-                        # Change columns (absolute)
-                        'reporter_maturation_time_change', 'env_intrinsic_noise_level_change', 'reporter_signal_strength_change',
-                        'terminator_stability_change', 'arch_complexity_change', 'env_translational_variability_change',
-                        'promoter_strength_change', 'env_oxidative_stress_change', 'env_dynamic_stress_change',
-                        'arch_regulatory_elements_change', 'env_resource_competition_change', 'sim_mRNA_degradation_rate_change',
-                        'rbs_temperature_sensitivity_change', 'sim_protein_degradation_rate_change', 'copy_multiplier_change',
-                        'env_pH_actual_change', 'env_total_stress_change', 'env_noise_frequency_change',
-                        'target_biomarker_binding_affinity_change', 'env_metabolic_flux_noise_change', 'copy_noise_factor_change',
-                        'promoter_noise_sensitivity_change', 'terminator_efficiency_change', 'concentration_ratio_change',
-                        'sim_transcription_rate_change', 'promoter_leakiness_change', 'env_ionic_strength_change',
-                        'env_immune_signal_level_change', 'env_temperature_actual_change', 'target_biomarker_threshold_change',
-                        'conc_category_Low_change', 'env_noise_amplitude_modulation_change', 'env_metabolic_load_change',
-                        'env_static_stress_change', 'env_temperature_variation_change', 'sim_random_seed_change',
-                        'env_pH_variation_change', 'env_extrinsic_noise_level_change', 'sim_translation_rate_change',
-                        'env_target_biomarker_concentration_change', 'env_noise_autocorrelation_change', 'rbs_efficiency_change',
-                        'env_transcriptional_bursting_change',
-                        # Change percentage columns
-                        'reporter_maturation_time_change_pct', 'env_intrinsic_noise_level_change_pct', 'reporter_signal_strength_change_pct',
-                        'terminator_stability_change_pct', 'arch_complexity_change_pct', 'env_translational_variability_change_pct',
-                        'promoter_strength_change_pct', 'env_oxidative_stress_change_pct', 'env_dynamic_stress_change_pct',
-                        'arch_regulatory_elements_change_pct', 'env_resource_competition_change_pct', 'sim_mRNA_degradation_rate_change_pct',
-                        'rbs_temperature_sensitivity_change_pct', 'sim_protein_degradation_rate_change_pct', 'copy_multiplier_change_pct',
-                        'env_pH_actual_change_pct', 'env_total_stress_change_pct', 'env_noise_frequency_change_pct',
-                        'target_biomarker_binding_affinity_change_pct', 'env_metabolic_flux_noise_change_pct', 'copy_noise_factor_change_pct',
-                        'promoter_noise_sensitivity_change_pct', 'terminator_efficiency_change_pct', 'concentration_ratio_change_pct',
-                        'sim_transcription_rate_change_pct', 'promoter_leakiness_change_pct', 'env_ionic_strength_change_pct',
-                        'env_immune_signal_level_change_pct', 'env_temperature_actual_change_pct', 'target_biomarker_threshold_change_pct',
-                        'conc_category_Low_change_pct', 'env_noise_amplitude_modulation_change_pct', 'env_metabolic_load_change_pct',
-                        'env_static_stress_change_pct', 'env_temperature_variation_change_pct', 'sim_random_seed_change_pct',
-                        'env_pH_variation_change_pct', 'env_extrinsic_noise_level_change_pct', 'sim_translation_rate_change_pct',
-                        'env_target_biomarker_concentration_change_pct', 'env_noise_autocorrelation_change_pct', 'rbs_efficiency_change_pct',
-                        'env_transcriptional_bursting_change_pct'
-                    ]
+                    # FIX: Use actual modifiable features from environment
+                    headers = ['episode', 'step']
+                    
+                    # Add value columns for each modifiable feature
+                    for feature in self.modifiable_features:
+                        headers.append(f'{feature}_value')
+                    
+                    # Add change columns (absolute)
+                    for feature in self.modifiable_features:
+                        headers.append(f'{feature}_change')
+                    
+                    # Add change percentage columns
+                    for feature in self.modifiable_features:
+                        headers.append(f'{feature}_change_pct')
                     
                     writer.writerow(headers)
+
+            def set_reward_weights(self, new_weights):
+                """Dynamically change reward weights during training"""
+                self.metric_weights.update(new_weights)
+                print(f"   ✅ Updated reward weights: {new_weights}")
 
             def reset(self):
                 """Reset environment with better initialization strategies"""
@@ -4071,6 +4065,7 @@ class BiosensorPipeline:
                 # IMPORTANT: Log episode summary for the previous episode (if it exists)
                 if hasattr(self, 'current_episode_rewards') and len(self.current_episode_rewards) > 0:
                     self._log_episode_summary()
+                    self._store_experience_for_learning() 
                 
                 # Better initialization strategies
                 init_strategy = np.random.choice(['random', 'near_best', 'opposite_best', 'center'])
@@ -4123,10 +4118,20 @@ class BiosensorPipeline:
                 
                 # ===== CRITICAL: Return observation as numpy array =====
                 obs = self._get_observation()
-                
+    
                 # Ensure observation is numpy array (SubprocVecEnv expects this)
                 if not isinstance(obs, np.ndarray):
                     obs = np.array(obs, dtype=np.float32)
+                
+                # Validate shape
+                expected_shape = self.observation_space.shape
+                if obs.shape != expected_shape:
+                    print(f"⚠️ Observation shape mismatch! Expected {expected_shape}, got {obs.shape}")
+                    # Pad or truncate to match
+                    if len(obs) < expected_shape[0]:
+                        obs = np.pad(obs, (0, expected_shape[0] - len(obs)), mode='constant')
+                    elif len(obs) > expected_shape[0]:
+                        obs = obs[:expected_shape[0]]
                 
                 return obs  # Single observation for single environment
 
@@ -4188,16 +4193,90 @@ class BiosensorPipeline:
                 else:
                     reward_mean = reward_std = reward_trend = current_reward = 0.0
 
-                # INCLUDE PREDICTED MOS IN STATE (Section IV.2)
-                obs = np.concatenate([
-                    normalized_modifiable,
-                    [step_ratio, reward_mean, reward_std, reward_trend, current_reward, current_mos]
-                ]).astype(np.float32)
-                
+                # ENHANCED OBSERVATION SPACE - Include ALL relevant information
+                try:
+                    # 1. Normalized modifiable features (9 values)
+                    obs_components = [normalized_modifiable]
+                    
+                    # 2. Individual target predictions (4 values) - CRITICAL for learning
+                    target_predictions = []
+                    for metric in ['signal_to_noise_ratio_SNR', 'dynamic_range_of_output', 
+                                'false_negative_rate', 'time_to_detection_threshold']:
+                        if metric in self.surrogate_models:
+                            try:
+                                model = self.surrogate_models[metric]
+                                full_state = self._create_full_state(target_metric=metric)
+                                state_tensor = torch.FloatTensor(full_state).unsqueeze(0)
+                                
+                                if hasattr(model, 'eval'):
+                                    model.eval()
+                                    with torch.no_grad():
+                                        pred = model(state_tensor).item()
+                                else:
+                                    pred = model.predict(full_state.reshape(1, -1))[0]
+                                
+                                # Normalize predictions to [0, 1]
+                                if metric == 'signal_to_noise_ratio_SNR':
+                                    pred_norm = pred / 100.0
+                                elif metric == 'dynamic_range_of_output':
+                                    pred_norm = pred / 20000.0
+                                elif metric == 'false_negative_rate':
+                                    pred_norm = pred  # Already [0, 1]
+                                elif metric == 'time_to_detection_threshold':
+                                    pred_norm = pred / 200.0
+                                else:
+                                    pred_norm = pred
+                                
+                                target_predictions.append(pred_norm)
+                            except:
+                                target_predictions.append(0.0)
+                        else:
+                            target_predictions.append(0.0)
+                    
+                    obs_components.append(np.array(target_predictions))
+                    
+                    # 3. Gradient information (how much each target can improve)
+                    target_gaps = []
+                    for pred in target_predictions:
+                        # How far from ideal value?
+                        gap = 1.0 - pred  # For metrics we want to maximize
+                        target_gaps.append(gap)
+                    obs_components.append(np.array(target_gaps))
+                    
+                    # 4. Context information (6 values)
+                    obs_components.append(np.array([
+                        step_ratio, 
+                        reward_mean, 
+                        reward_std, 
+                        reward_trend, 
+                        current_reward, 
+                        current_mos
+                    ]))
+                    
+                    # 5. Feature bounds utilization (how close to limits)
+                    bounds_utilization = []
+                    for i, (feature, bounds) in enumerate(self.modifiable_bounds.items()):
+                        current_val = self.modifiable_state[i]
+                        # -1 = at lower bound, 0 = middle, +1 = at upper bound
+                        utilization = 2 * (current_val - bounds[0]) / (bounds[1] - bounds[0]) - 1
+                        bounds_utilization.append(utilization)
+                    obs_components.append(np.array(bounds_utilization))
+                    
+                    # Concatenate all components
+                    obs = np.concatenate(obs_components).astype(np.float32)
+                    
+                except Exception as e:
+                    print(f"⚠️ Observation construction failed: {e}")
+                    # Fallback to minimal observation
+                    obs = np.concatenate([
+                        normalized_modifiable,
+                        [step_ratio, reward_mean, reward_std, reward_trend, current_reward, current_mos]
+                    ]).astype(np.float32)
+
                 # Safety check
                 obs = np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0)
                 obs = np.clip(obs, -3.0, 3.0)
-                
+                                
                 return obs
             
             def set_reward_shaping(self, episode_num):
@@ -4210,44 +4289,56 @@ class BiosensorPipeline:
                     self.reward_scale = 1.0  # Full difficulty
 
             def step(self, action):
-                """Step environment with proper handling of continuous and categorical actions"""
+                """Step environment with DISCRETE actions mapped to parameter changes"""
                 self.step_count += 1
                 self.global_step += 1
                 
                 # Store previous state for change tracking
                 prev_state = self.modifiable_state.copy()
                 
+                # CRITICAL FIX: Handle action properly
+                # SubprocVecEnv passes scalar actions, not arrays
+                if not isinstance(action, (int, np.integer)):
+                    # If somehow we got an array, take first element
+                    action = int(action[0]) if hasattr(action, '__len__') else int(action)
+                else:
+                    action = int(action)
+                
                 # DECODE DISCRETE ACTION using mapping
-                action_info = self.action_mapping[action]
-                action_type = action_info[0]  # 'continuous' or 'categorical'
+                try:
+                    action_info = self.action_mapping[action]
+                except (KeyError, TypeError, IndexError):
+                    # Fallback if action is somehow invalid
+                    print(f"⚠️ Invalid action: {action}, using no-op")
+                    action_info = ('continuous', list(self.modifiable_features)[0], 'keep', 1.0)
+                
+                action_type = action_info[0]
                 feature_name = action_info[1]
                 operation = action_info[2]
                 value = action_info[3]
-
-                actual_idx = self.modifiable_features.index(feature_name)
-
+                
+                # Find the actual index in modifiable_state
+                try:
+                    feature_idx = self.modifiable_features.index(feature_name)
+                except ValueError:
+                    # Feature not found, skip this action
+                    feature_idx = 0
+                
+                # Apply the action
                 if action_type == 'continuous':
-                    # Apply multiplier
-                    bounds = list(self.modifiable_bounds.values())[actual_idx]
-                    current_val = self.modifiable_state[actual_idx]
+                    # Get current value and bounds
+                    current_val = self.modifiable_state[feature_idx]
+                    bounds = list(self.modifiable_bounds.values())[feature_idx]
                     
-                    if operation == 'decrease':
-                        new_value = current_val * value  # value = 0.9
-                    elif operation == 'keep':
-                        new_value = current_val  # NO-OP
-                    else:  # increase
-                        new_value = current_val * value  # value = 1.1
+                    # Apply multiplier
+                    new_val = current_val * value
                     
                     # Clip to bounds
-                    self.modifiable_state[actual_idx] = np.clip(new_value, bounds[0], bounds[1])
-
+                    self.modifiable_state[feature_idx] = np.clip(new_val, bounds[0], bounds[1])
+                    
                 elif action_type == 'categorical':
-                    # Set categorical value
-                    if feature_name == 'feedback_presence':
-                        self.modifiable_state[actual_idx] = float(value)
-                    elif feature_name == 'circuit_topology':
-                        topology_map = {'direct': 0.0, 'cascade': 0.5, 'incoherent_feedforward': 1.0}
-                        self.modifiable_state[actual_idx] = topology_map.get(value, 0.0)
+                    # For categorical features, directly set the value
+                    self.modifiable_state[feature_idx] = value
                 
                 # Calculate reward and predictions
                 reward, predictions = self._calculate_reward_with_predictions()
@@ -4256,7 +4347,7 @@ class BiosensorPipeline:
                 self.reward_history.append(reward)
                 self.current_episode_rewards.append(reward)
                 self.current_episode_states.append(self.modifiable_state.copy())
-                self.current_episode_actions.append(action)
+                self.current_episode_actions.append(action)  # Store as scalar int
                 self.current_episode_predictions.append(predictions)
                 
                 if reward > self.best_reward:
@@ -4273,27 +4364,24 @@ class BiosensorPipeline:
                 # Log trajectory evolution
                 self._log_trajectory_evolution(prev_state)
                 
-                # ===== FIXED: Handle both single and vectorized environments =====
+                # Done condition
                 done = bool(self.step_count >= self.max_steps)
                 reward = float(reward)
                 
-                # FIXED: Info structure depends on whether we're in a vectorized wrapper
-                # When used with SubprocVecEnv, the wrapper expects a DICT
-                # The wrapper will handle converting to tuple of dicts for multiple envs
+                # Info dict for vectorized environment
                 info = {
                     'raw_reward': float(reward),
                     'step_count': int(self.step_count),
                     'best_reward': float(self.best_reward),
                     'predictions': predictions,
                     'exploration_bonus': 0.0,
-                    'parameter_diversity': int(len([i for i in range(len(self.modifiable_state)) 
-                                                if abs(self.modifiable_state[i] - prev_state[i]) > 0.01]))
+                    'parameter_diversity': 1 if action % 3 != 1 else 0  # 1 if not "keep" action
                 }
                 
                 # Log episode summary when episode ends
                 if done:
                     self._log_episode_summary()
-
+                
                 return self._get_observation(), reward, done, info
                             
             def _calculate_reward_with_predictions(self):
@@ -4368,6 +4456,22 @@ class BiosensorPipeline:
                         normalized = (value - min_val) / (max_val - min_val)
                         return np.clip(normalized, 0.0, 1.0)
                     
+                    # ADAPTIVE REWARD SHAPING based on episode count
+                    # Early training: reward ANY improvement to encourage exploration
+                    # Late training: strict MOS optimization
+                    if hasattr(self, 'current_episode'):
+                        if self.current_episode < 1000:
+                            # Early phase: reward any positive component
+                            reward_multiplier = 1.5
+                        elif self.current_episode < 5000:
+                            # Mid phase: balanced
+                            reward_multiplier = 1.2
+                        else:
+                            # Late phase: strict optimization
+                            reward_multiplier = 1.0
+                    else:
+                        reward_multiplier = 1.0
+
                     # Calculate MOS components (THIS IS THE KEY FIX)
                     mos = 0.0
                     
@@ -4414,9 +4518,95 @@ class BiosensorPipeline:
                     
                     constraint_penalty = np.clip(constraint_penalty, 0.0, 0.5)  # Max 50% penalty
                     
-                    # Final reward (GUARANTEED in [0, 1])
-                    final_reward = mos * (1.0 - constraint_penalty)
-                    final_reward = np.clip(final_reward, 0.0, 1.0)
+                    # MULTI-COMPONENT REWARD for better learning signal
+                    reward_components = {}
+
+                    # Component 1: Raw MOS (main objective)
+                    reward_components['mos'] = mos
+                    mos_reward = mos * 2.0  # Weight MOS highly
+
+                    # Component 2: Individual target rewards (help agent understand)
+                    target_rewards = 0.0
+                    for metric in ['signal_to_noise_ratio_SNR', 'dynamic_range_of_output',
+                                'false_negative_rate', 'time_to_detection_threshold']:
+                        if metric in predictions:
+                            pred = predictions[metric]
+                            
+                            # Calculate target-specific reward
+                            if metric == 'signal_to_noise_ratio_SNR':
+                                # Want high SNR (0-100)
+                                target_reward = (pred / 100.0) * 0.45
+                            elif metric == 'dynamic_range_of_output':
+                                # Want high DR (0-20000)
+                                target_reward = (pred / 20000.0) * 0.25
+                            elif metric == 'false_negative_rate':
+                                # Want low FNR (0-1)
+                                target_reward = (1.0 - pred) * 0.20
+                            elif metric == 'time_to_detection_threshold':
+                                # Want low TTD (0-200)
+                                target_reward = (1.0 - pred / 200.0) * 0.10
+                            else:
+                                target_reward = 0.0
+                            
+                            target_rewards += target_reward
+                            reward_components[metric] = target_reward
+
+                    reward_components['targets'] = target_rewards
+
+                    # Component 3: Improvement reward (reward progress)
+                    improvement_reward = 0.0
+                    if len(self.reward_history) > 0:
+                        previous_mos = self.reward_history[-1] if len(self.reward_history) > 0 else 0.0
+                        improvement = mos - previous_mos
+                        improvement_reward = 0.5 * np.tanh(improvement * 10)  # Scaled improvement bonus
+                    reward_components['improvement'] = improvement_reward
+
+                    # Component 4: Constraint penalty (soft, not harsh)
+                    soft_constraint_penalty = 0.0
+                    for i, (feature, bounds) in enumerate(self.modifiable_bounds.items()):
+                        if self.modifiable_state[i] < bounds[0]:
+                            violation = (bounds[0] - self.modifiable_state[i]) / (bounds[1] - bounds[0])
+                            soft_constraint_penalty += 0.05 * violation
+                        elif self.modifiable_state[i] > bounds[1]:
+                            violation = (self.modifiable_state[i] - bounds[1]) / (bounds[1] - bounds[0])
+                            soft_constraint_penalty += 0.05 * violation
+
+                    reward_components['constraint'] = -soft_constraint_penalty
+
+                    # Component 5: Exploration bonus
+                    exploration_bonus = 0.0
+                    if hasattr(self, 'previous_state') and self.previous_state is not None:
+                        state_change = np.linalg.norm(self.modifiable_state - self.previous_state)
+                        # Reward moderate changes (not too small, not too large)
+                        if 0.05 < state_change < 0.30:
+                            exploration_bonus = 0.1
+                    reward_components['exploration'] = exploration_bonus
+
+                    # TOTAL REWARD (weighted sum)
+                    final_reward = (
+                        mos_reward * 1.0 +                    # Main objective
+                        target_rewards * 0.3 +                # Help understand components
+                        improvement_reward * 0.5 +            # Reward progress
+                        -soft_constraint_penalty +            # Soft penalty
+                        exploration_bonus                     # Encourage exploration
+                    )
+
+                    # Scale to reasonable range for RL
+                    final_reward = np.clip(final_reward, -2.0, 4.0)
+
+                    # Store for next step
+                    self.previous_state = self.modifiable_state.copy()
+                    predictions['reward_components'] = reward_components  # Log for analysis
+
+                    # Add small exploration bonus to encourage trying new states
+                    exploration_bonus = 0.0
+                    if hasattr(self, 'previous_state') and self.previous_state is not None:
+                        state_change = np.linalg.norm(self.modifiable_state - self.previous_state)
+                        exploration_bonus = 0.05 * np.tanh(state_change)  # Reward for exploration
+                        final_reward += exploration_bonus
+
+                    # Store for next step
+                    self.previous_state = self.modifiable_state.copy()
                     
                     predictions['mos_score'] = float(mos)
                     predictions['constraint_penalty'] = float(constraint_penalty)
@@ -4460,54 +4650,112 @@ class BiosensorPipeline:
                 
                 new_value = self.modifiable_state[feature_idx] + self.action_momentum[feature_idx] * range_size
                 self.modifiable_state[feature_idx] = np.clip(new_value, bounds[0], bounds[1])
+
+            def _store_experience_for_learning(self):
+                """
+                Store experience with hindsight goals for better learning
+                This helps agent learn from "failures" by imagining different goals
+                """
+                if len(self.current_episode_states) < 2:
+                    return
+                
+                # Get final state and predictions
+                final_state = self.current_episode_states[-1]
+                
+                # For each step in episode, imagine if reaching final state was the goal
+                hindsight_rewards = []
+                for i in range(len(self.current_episode_rewards)):
+                    state = self.current_episode_states[i]
+                    
+                    # Calculate "hindsight reward" - how close was this state to final state?
+                    distance_to_final = np.linalg.norm(state - final_state)
+                    hindsight_reward = 1.0 / (1.0 + distance_to_final)
+                    hindsight_rewards.append(hindsight_reward)
+                
+                # Store for potential replay
+                self.hindsight_experiences = list(zip(
+                    self.current_episode_states,
+                    self.current_episode_actions,
+                    hindsight_rewards
+                ))
             
             def _log_step_details(self, action, reward, predictions):
                 """Log detailed step information"""
                 step_log_path = os.path.join(self.log_dir, "step_details.csv")
-                with open(step_log_path, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    
-                    cumulative_reward = sum(self.current_episode_rewards)
-                    row = [
-                        self.current_episode, self.step_count, 
-                        action, reward, cumulative_reward
-                    ]
-                    
-                    # Add modifiable state values
-                    row.extend(self.modifiable_state.tolist())
-                    
-                    # Add predictions
-                    for metric in self.target_metrics:
-                        row.append(predictions.get(metric, np.nan))
-                    
-                    writer.writerow(row)
+                
+                try:
+                    with open(step_log_path, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        
+                        cumulative_reward = sum(self.current_episode_rewards)
+                        
+                        # Convert action to string - handle both scalar and array
+                        if isinstance(action, (int, np.integer)):
+                            action_str = str(int(action))
+                        elif isinstance(action, np.ndarray):
+                            if action.size == 1:
+                                action_str = str(int(action.item()))
+                            else:
+                                action_str = ','.join([f'{a:.4f}' for a in action])
+                        else:
+                            action_str = str(action)
+                        
+                        row = [
+                            self.current_episode, self.step_count, 
+                            action_str, reward, cumulative_reward
+                        ]
+                                    
+                        # Add modifiable state values (ensure float conversion)
+                        row.extend([float(x) for x in self.modifiable_state.tolist()])
+                        
+                        # Add predictions (ensure float conversion and handle missing)
+                        for metric in self.target_metrics:
+                            pred_value = predictions.get(metric, 0.0)
+                            row.append(float(pred_value) if pred_value is not None else 0.0)
+                        
+                        writer.writerow(row)
+                except Exception as e:
+                    print(f"   ⚠️ Failed to log step details: {e}")
             
             def _log_trajectory_evolution(self, prev_state):
                 """Log trajectory evolution with state changes"""
                 trajectory_log_path = os.path.join(self.log_dir, "trajectory_evolution.csv")
-                with open(trajectory_log_path, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    
-                    row = [self.current_episode, self.step_count]
-                    
-                    # Current state values
-                    row.extend(self.modifiable_state.tolist())
-                    
-                    # State changes (absolute)
-                    changes = self.modifiable_state - prev_state
-                    row.extend(changes.tolist())
-                    
-                    # State changes (percentage)
-                    pct_changes = []
-                    for i, (current, previous) in enumerate(zip(self.modifiable_state, prev_state)):
-                        if abs(previous) > 1e-10:
-                            pct_change = (current - previous) / previous * 100
-                        else:
-                            pct_change = 0.0
-                        pct_changes.append(pct_change)
-                    
-                    row.extend(pct_changes)
-                    writer.writerow(row)
+                
+                # FIX: Match header structure exactly
+                try:
+                    with open(trajectory_log_path, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        
+                        row = [self.current_episode, self.step_count]
+                        
+                        # Current state values (float conversion)
+                        row.extend([float(x) for x in self.modifiable_state.tolist()])
+                        
+                        # State changes (absolute) - ensure same length as features
+                        changes = self.modifiable_state - prev_state
+                        row.extend([float(x) for x in changes.tolist()])
+                        
+                        # State changes (percentage) - handle division by zero
+                        pct_changes = []
+                        for i, (current, previous) in enumerate(zip(self.modifiable_state, prev_state)):
+                            if abs(previous) > 1e-10:
+                                pct_change = ((current - previous) / abs(previous)) * 100
+                            else:
+                                pct_change = 0.0
+                            pct_changes.append(float(pct_change))
+                        
+                        row.extend(pct_changes)
+                        
+                        # FIX: Validate row length matches header count
+                        # Expected: 2 (episode, step) + 3 * len(modifiable_features)
+                        expected_length = 2 + 3 * len(self.modifiable_features)
+                        if len(row) != expected_length:
+                            print(f"   ⚠️ Row length mismatch: got {len(row)}, expected {expected_length}")
+                            return
+                        
+                        writer.writerow(row)
+                except Exception as e:
+                    print(f"   ⚠️ Failed to log trajectory: {e}")
 
             def _log_episode_summary(self):
                 """Log episode summary statistics"""
@@ -4525,11 +4773,13 @@ class BiosensorPipeline:
                     best_reward = max(self.current_episode_rewards)
                     final_reward = self.current_episode_rewards[-1]
                     
-                    # Check convergence (reward stability in last 5 steps)
-                    if len(self.current_episode_rewards) >= 5:
-                        last_5_rewards = self.current_episode_rewards[-5:]
-                        reward_std = np.std(last_5_rewards)
-                        convergence_achieved = reward_std < 0.01
+                    # Check convergence (reward stability in last 20 steps with higher threshold)
+                    if len(self.current_episode_rewards) >= 20:
+                        last_20_rewards = self.current_episode_rewards[-20:]
+                        reward_std = np.std(last_20_rewards)
+                        reward_mean = np.mean(last_20_rewards)
+                        # Convergence = low variance AND high reward
+                        convergence_achieved = (reward_std < 0.05) and (reward_mean > 0.60)
                     else:
                         convergence_achieved = False
                     
@@ -4822,53 +5072,79 @@ class BiosensorPipeline:
             "policy": "MlpPolicy",
             "env": self.rl_env,
             "verbose": 1,
-            "learning_rate": 3e-4,  # Slightly higher for faster learning
-            "buffer_size": 100000,  # Reduced for faster updates
-            "learning_starts": 5000,  # Reduced warm-up
-            "batch_size": 64,  # Smaller batches for more frequent updates
-            "target_update_interval": 500,  # More frequent target updates
-            "exploration_fraction": 0.8,  # More exploration time
+            "learning_rate": 3e-4,
+            "buffer_size": 100000,
+            "learning_starts": 5000,
+            "batch_size": 64,
+            "target_update_interval": 500,
+            "exploration_fraction": 0.8,
             "exploration_initial_eps": 1.0,
-            "exploration_final_eps": 0.15,  # Higher final exploration
-            "train_freq": 2,  # More frequent training
+            "exploration_final_eps": 0.15,
+            "train_freq": 2,
             "gradient_steps": 1,
             "policy_kwargs": {
-                "net_arch": [128, 128, 64],  # Smaller but faster network
+                "net_arch": [256, 256, 128, 64],  # ← REMOVE dict(pi=..., vf=...) for DQN
                 "activation_fn": torch.nn.ReLU,
             }
         }
         
         # OPTIMIZED PPO CONFIG (Section IV.3) - TUNED FOR STABLE VALUE ESTIMATES
         ppo_config = {
-            "policy": "MlpPolicy", 
+            "policy": "MlpPolicy",  # ✅ Supports continuous actions
             "env": self.rl_env,
             "verbose": 1,
-            "learning_rate": self._linear_schedule(1e-4),  # LOWER learning rate for stability
-            "n_steps": 2048,  # REDUCED for faster updates
-            "batch_size": 128,  # SMALLER batches for stability
-            "n_epochs": 10,
+            "learning_rate": self._linear_schedule(3e-4),
+            "n_steps": 4096,
+            "batch_size": 256,
+            "n_epochs": 20,
             "gamma": 0.99,
             "gae_lambda": 0.95,
             "clip_range": 0.2,
-            "ent_coef": 0.01,  # REDUCED entropy (you're exploring too much!)
+            "ent_coef": 0.10,  # Higher for continuous actions
             "vf_coef": 0.5,
-            "max_grad_norm": 0.5,
-            "normalize_advantage": True,  # ADD THIS - critical for stability
+            "max_grad_norm": 1.0,
+            "normalize_advantage": True,
             "policy_kwargs": {
-                "net_arch": [128, 128, 64],  # SMALLER network to prevent overfitting
-                "activation_fn": torch.nn.Tanh,  # TANH instead of ReLU for bounded outputs
-                "ortho_init": True,  # ADD THIS - better weight initialization
+                "net_arch": dict(
+                    pi=[256, 256, 128],  # Policy (actor)
+                    vf=[256, 256, 128]   # Value (critic)
+                ),
+                "activation_fn": torch.nn.ReLU,
+                "ortho_init": True,
+                "log_std_init": -1.0,  # ← ADD THIS for continuous actions
             }
         }
-                
+                        
         return dqn_config, ppo_config
     
     def _linear_schedule(self, initial_value):
-        """
-        Linear learning rate schedule (Section IV.3)
-        """
+        """Linear learning rate schedule"""
         def schedule(progress_remaining):
             return progress_remaining * initial_value
+        return schedule
+
+    def _adaptive_clip_schedule(self, initial_value):
+        """
+        Adaptive clip range schedule for better exploration
+        Start high (0.3) for exploration, decay to low (0.1) for exploitation
+        """
+        def schedule(progress_remaining):
+            # More aggressive early exploration
+            min_clip = 0.1
+            max_clip = initial_value
+            return min_clip + (max_clip - min_clip) * progress_remaining
+        return schedule
+    
+    def _cosine_schedule(self, initial_lr, final_lr):
+        """
+        Cosine annealing schedule - starts high, gradually decreases
+        Better than linear for RL
+        """
+        def schedule(progress_remaining):
+            # progress_remaining goes from 1.0 to 0.0
+            progress = 1.0 - progress_remaining
+            cosine_decay = 0.5 * (1 + np.cos(np.pi * progress))
+            return final_lr + (initial_lr - final_lr) * cosine_decay
         return schedule
 
     def train_rl_agents(self, total_timesteps: int = 500000):  # SECTION IV.3: Minimum 500k
@@ -4943,11 +5219,11 @@ class BiosensorPipeline:
             print("   Training PPO with exploration focus...")
             try:
                 # Train in chunks to monitor progress
-                chunk_size = total_timesteps // 5
-                for i in range(5):
-                    print(f"      PPO Training chunk {i+1}/5...")
+                chunk_size = total_timesteps // 10  # ← MORE frequent checkpoints
+                for i in range(10):  # ← 10 chunks instead of 5
+                    print(f"      PPO Training chunk {i+1}/10 ({(i+1)*chunk_size} timesteps)...")
                     ppo_agent.learn(total_timesteps=chunk_size)
-                    
+                            
                     # Quick evaluation
                     if i % 2 == 0:
                         obs = self.rl_env.reset()
@@ -6045,6 +6321,67 @@ class BiosensorPipeline:
         
         print(f"✅ Best models saved to: {best_models_dir}")
     
+    
+    def train_rl_agents_with_curriculum(self, total_timesteps: int = 2000000):
+        """
+        Train RL agents with automatic curriculum learning
+        Start with easier goals, gradually increase difficulty
+        """
+        print(f"🎓 Training RL agents with CURRICULUM LEARNING...")
+        
+        # Stage 1: Focus on SNR only (25% of training)
+        stage1_timesteps = int(total_timesteps * 0.25)
+        print(f"\n📚 STAGE 1: Focus on SNR (easiest metric)")
+        self.rl_env.set_reward_weights({
+            'signal_to_noise_ratio_SNR': 0.90,
+            'dynamic_range_of_output': 0.05,
+            'false_negative_rate': 0.03,
+            'time_to_detection_threshold': 0.02
+        })
+        
+        ppo_agent = PPO(**self.get_stable_training_configs()[1])
+        ppo_agent.learn(total_timesteps=stage1_timesteps)
+        
+        # Stage 2: Add Dynamic Range (25% of training)
+        stage2_timesteps = int(total_timesteps * 0.25)
+        print(f"\n📚 STAGE 2: Add Dynamic Range")
+        self.rl_env.set_reward_weights({
+            'signal_to_noise_ratio_SNR': 0.60,
+            'dynamic_range_of_output': 0.30,
+            'false_negative_rate': 0.07,
+            'time_to_detection_threshold': 0.03
+        })
+        
+        ppo_agent.learn(total_timesteps=stage2_timesteps)
+        
+        # Stage 3: Add FNR (25% of training)
+        stage3_timesteps = int(total_timesteps * 0.25)
+        print(f"\n📚 STAGE 3: Add False Negative Rate")
+        self.rl_env.set_reward_weights({
+            'signal_to_noise_ratio_SNR': 0.50,
+            'dynamic_range_of_output': 0.25,
+            'false_negative_rate': 0.20,
+            'time_to_detection_threshold': 0.05
+        })
+        
+        ppo_agent.learn(total_timesteps=stage3_timesteps)
+        
+        # Stage 4: Full multi-objective (25% of training)
+        stage4_timesteps = total_timesteps - stage1_timesteps - stage2_timesteps - stage3_timesteps
+        print(f"\n📚 STAGE 4: Full Multi-Objective Optimization")
+        self.rl_env.set_reward_weights({
+            'signal_to_noise_ratio_SNR': 0.45,
+            'dynamic_range_of_output': 0.25,
+            'false_negative_rate': 0.20,
+            'time_to_detection_threshold': 0.10
+        })
+        
+        ppo_agent.learn(total_timesteps=stage4_timesteps)
+        
+        # Final evaluation
+        print(f"\n🎯 Curriculum training complete. Running final evaluation...")
+        return self._evaluate_agent(ppo_agent)
+
     def run_complete_pipeline(self, biomarker: Optional[str] = None, 
                              apply_pca: bool = False, 
                              rl_timesteps: int = 500000):         # STRATEGIC DOCUMENT: Section IV.3
@@ -6220,7 +6557,8 @@ def main():
         for i, biomarker in enumerate(biomarkers, 1):
             print(f"   {i}. {biomarker}")
 
-        rl_timesteps = 500000  # STRATEGIC DOCUMENT MINIMUM (Section IV.3)          ------------------------------------------------ NEED TO CHANGE
+        rl_timesteps = 2000000  # ← QUADRUPLED for proper convergence
+        # Rationale: 500k was insufficient based on analysis showing premature convergence         ------------------------------------------------ NEED TO CHANGE
         
         # Results storage
         all_results = {}
