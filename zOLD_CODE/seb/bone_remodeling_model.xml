@@ -1,0 +1,1631 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">
+  <model id="bone_remodeling_model" name="Stochastic Bone Remodeling with Biomarker Feedback" substanceUnits="item" timeUnits="hour" extentUnits="item">
+    <listOfCompartments>
+      <compartment id="bone" name="Bone Microenvironment" spatialDimensions="3" size="0.01" units="litre" constant="true"/>
+      <compartment id="blood" name="Systemic Circulation" spatialDimensions="3" size="5" units="litre" constant="true"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="Gravity" compartment="bone" initialAmount="1000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Radiation" compartment="bone" initialAmount="0" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="FluidShift" compartment="bone" initialAmount="0" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="CircadianDisruption" compartment="bone" initialAmount="0" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="ExerciseLoad" compartment="bone" initialAmount="300" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Nutrition" compartment="bone" initialAmount="1000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="StressHormones" compartment="bone" initialAmount="500" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="OxygenLevel" compartment="bone" initialAmount="1000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Osteocytes" compartment="bone" initialAmount="10000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Osteoblasts" compartment="bone" initialAmount="500" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Osteoclasts" compartment="bone" initialAmount="50" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="OsteoblastPrecursors" compartment="bone" initialAmount="200" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="OsteoclastPrecursors" compartment="bone" initialAmount="100" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Wnt_ligand" compartment="bone" initialAmount="12044000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="LRP5_LRP6" compartment="bone" initialAmount="30110000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="BetaCatenin_cytoplasm" compartment="bone" initialAmount="9033000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="BetaCatenin_nucleus" compartment="bone" initialAmount="4817600000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="GSK3beta" compartment="bone" initialAmount="12044000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="TCF_LEF" compartment="bone" initialAmount="3011000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Sclerostin_ECM" compartment="bone" initialAmount="4215400000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Sclerostin_blood" compartment="blood" initialAmount="1.8066e+15" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="RANKL_membrane" compartment="bone" initialAmount="3011000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="RANKL_soluble" compartment="bone" initialAmount="4817600000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="OPG_ECM" compartment="bone" initialAmount="30110000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="RANK_osteoclast" compartment="bone" initialAmount="12044000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="RANKL_RANK_complex" compartment="bone" initialAmount="602200000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="RANKL_OPG_complex" compartment="bone" initialAmount="1806600000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="PTH_blood" compartment="blood" initialAmount="15055000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="PTH_ECM" compartment="bone" initialAmount="24088000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="PTH_receptor" compartment="bone" initialAmount="18066000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="PTH_receptor_active" compartment="bone" initialAmount="1806600000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="cAMP" compartment="bone" initialAmount="3011000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="PKA_active" compartment="bone" initialAmount="1204400000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="CREB_phosphorylated" compartment="bone" initialAmount="602200000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="VitaminD_blood" compartment="blood" initialAmount="1.5055e+17" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Cortisol_blood" compartment="blood" initialAmount="9.033e+17" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="IL6_blood" compartment="blood" initialAmount="150550000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Estrogen_blood" compartment="blood" initialAmount="2.1077e+15" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="FGF23_blood" compartment="blood" initialAmount="120440000000000" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Phosphate_blood" compartment="blood" initialAmount="3.3121e+21" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="BoneMass" compartment="bone" initialAmount="4" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>
+      <species id="BoneMineralDensity" compartment="bone" initialAmount="1.2" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Microarchitecture" compartment="bone" initialAmount="1" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+      <species id="Biomarker_ECM" compartment="bone" initialAmount="0" hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="k_mechano_sensitivity" value="0.35" constant="true"/>
+      <parameter id="k_load_threshold" value="1500" constant="true"/>
+      <parameter id="k_disuse_sclerostin" value="0.25" constant="true"/>
+      <parameter id="k_fluid_shear_microgravity" value="1.4" constant="true"/>
+      <parameter id="k_radiation_osteoblast_damage" value="0.2" constant="true"/>
+      <parameter id="k_radiation_inflammation" value="0.5" constant="true"/>
+      <parameter id="k_radiation_ocy_apoptosis" value="0.25" constant="true"/>
+      <parameter id="k_sclero_basal" value="148000" constant="true"/>
+      <parameter id="k_sclero_deg" value="0.35" constant="true"/>
+      <parameter id="k_sclero_transport" value="0.1" constant="true"/>
+      <parameter id="k_cortisol_enhance_sclero" value="2" constant="true"/>
+      <parameter id="k_IL6_enhance_sclero" value="0.4" constant="true"/>
+      <parameter id="k_osteoblast_diff" value="1e-05" constant="true"/>
+      <parameter id="k_osteoclast_diff" value="5e-06" constant="true"/>
+      <parameter id="k_osteoblast_apoptosis" value="0.0025" constant="true"/>
+      <parameter id="k_osteoclast_apoptosis" value="0.006" constant="true"/>
+      <parameter id="k_osteocyte_apoptosis_base" value="0.0008" constant="true"/>
+      <parameter id="k_precursor_replenish" value="0.015" constant="true"/>
+      <parameter id="k_bone_formation" value="1e-07" constant="true"/>
+      <parameter id="k_bone_resorption" value="1e-06" constant="true"/>
+      <parameter id="k_cortisol_prod" value="165" constant="true"/>
+      <parameter id="k_cortisol_deg" value="0.55" constant="true"/>
+      <parameter id="k_IL6_prod" value="0.02" constant="true"/>
+      <parameter id="k_IL6_deg" value="0.4" constant="true"/>
+      <parameter id="k_cortisol_RANKL" value="2" constant="true"/>
+      <parameter id="k_PTH_basal" value="0.005" constant="true"/>
+      <parameter id="k_PTH_deg" value="15" constant="true"/>
+      <parameter id="biomarker_threshold" value="1.5" constant="true"/>
+      <parameter id="k_biomarker_response" value="5" constant="true"/>
+      <parameter id="k_biomarker_deg" value="0.25" constant="true"/>
+      <parameter id="biomarker_IC50" value="2" constant="true"/>
+      <parameter id="hill_coefficient" value="1.1" constant="true"/>
+      <parameter id="biomarker_active" value="0" constant="true"/>
+      <parameter id="k_estrogen_OPG" value="2" constant="true"/>
+      <parameter id="k_estrogen_RANKL" value="0.5" constant="true"/>
+      <parameter id="k_estrogen_baseline" value="0.7" constant="true"/>
+      <parameter id="k_estrogen_decline" value="3e-05" constant="true"/>
+      <parameter id="PTH_dysregulation_factor" value="1" constant="true"/>
+      <parameter id="k_FGF23_sclerostin" value="1.3" constant="true"/>
+      <parameter id="k_FGF23_basal" value="0.04" constant="true"/>
+      <parameter id="k_FGF23_phosphate" value="2" constant="true"/>
+      <parameter id="k_FGF23_vitD" value="0.004" constant="true"/>
+      <parameter id="k_FGF23_deg" value="1" constant="true"/>
+      <parameter id="k_phosphate_basal" value="1.1" constant="true"/>
+      <parameter id="k_phosphate_accumulation" value="0.005" constant="true"/>
+      <parameter id="k_phosphate_clearance" value="0.01" constant="true"/>
+      <parameter id="min_osteocytes" value="250" constant="true"/>
+      <parameter id="min_bone_mass" value="3" constant="true"/>
+      <parameter id="min_phosphate_mM" value="0.7" constant="true"/>
+      <parameter id="k_wnt_production_basal" value="36000000" constant="true"/>
+      <parameter id="k_wnt_degradation" value="1.5" constant="true"/>
+      <parameter id="k_sclerostin_LRP_block" value="3" constant="true"/>
+      <parameter id="k_LRP_regeneration" value="0.3" constant="true"/>
+      <parameter id="k_beta_cat_stabilization" value="0.7" constant="true"/>
+      <parameter id="k_beta_cat_degradation" value="2.8" constant="true"/>
+      <parameter id="k_beta_cat_nuclear_import" value="12" constant="true"/>
+      <parameter id="k_beta_cat_nuclear_export" value="7" constant="true"/>
+      <parameter id="k_TCF_activation" value="4" constant="true"/>
+      <parameter id="k_TCF_deactivation" value="3" constant="true"/>
+      <parameter id="k_RANKL_membrane_prod" value="3010000" constant="true"/>
+      <parameter id="k_RANKL_shedding" value="0.5" constant="true"/>
+      <parameter id="k_OPG_production" value="16900000" constant="true"/>
+      <parameter id="k_OPG_degradation" value="0.28" constant="true"/>
+      <parameter id="k_RANKL_RANK_binding" value="3.6" constant="true"/>
+      <parameter id="k_RANKL_RANK_dissociation" value="18" constant="true"/>
+      <parameter id="k_OPG_RANKL_binding" value="18" constant="true"/>
+      <parameter id="k_OPG_RANKL_dissociation" value="3.6" constant="true"/>
+      <parameter id="k_RANKL_soluble_deg" value="0.5" constant="true"/>
+      <parameter id="k_PTH_to_bone" value="1.75" constant="true"/>
+      <parameter id="k_PTH_from_bone" value="0.08" constant="true"/>
+      <parameter id="k_PTH_receptor_binding" value="1.8" constant="true"/>
+      <parameter id="k_PTH_receptor_dissociation" value="14.4" constant="true"/>
+      <parameter id="k_cAMP_production" value="1" constant="true"/>
+      <parameter id="k_cAMP_degradation" value="15" constant="true"/>
+      <parameter id="k_PKA_activation" value="20" constant="true"/>
+      <parameter id="k_PKA_deactivation" value="12" constant="true"/>
+      <parameter id="k_CREB_phosphorylation" value="9" constant="true"/>
+      <parameter id="k_CREB_dephosphorylation" value="4.5" constant="true"/>
+      <parameter id="LRP_baseline" value="5" constant="true"/>
+      <parameter id="RANK_baseline" value="2" constant="true"/>
+      <parameter id="MechanoSignal" value="1" constant="false"/>
+      <parameter id="DisuseSignal" value="1" constant="false"/>
+      <parameter id="RadiationDamage" value="1" constant="false"/>
+      <parameter id="StressEffect" value="1" constant="false"/>
+      <parameter id="InflammationEffect" value="1" constant="false"/>
+      <parameter id="VitD_effect" value="1" constant="false"/>
+      <parameter id="Biomarker_activation" value="1" constant="false"/>
+      <parameter id="Biomarker_inhibition" value="1" constant="false"/>
+      <parameter id="PTH_sclerostin_suppression" value="1" constant="false"/>
+      <parameter id="PTH_wnt_stimulation" value="1" constant="false"/>
+      <parameter id="PTH_RANKL_effect" value="1" constant="false"/>
+      <parameter id="Wnt_LRP_active" value="1" constant="false"/>
+      <parameter id="Estrogen_effect_OPG" value="1" constant="false"/>
+      <parameter id="Estrogen_effect_RANKL" value="1" constant="false"/>
+      <parameter id="FGF23_sclerostin_effect" value="1" constant="false"/>
+      <parameter id="EffectiveMechanicalLoad" value="1" constant="false"/>
+      <parameter id="Cortisol_nM" value="1" constant="false"/>
+      <parameter id="Estrogen_nM" value="1" constant="false"/>
+      <parameter id="FGF23_nM" value="1" constant="false"/>
+      <parameter id="Phosphate_mM" value="1" constant="false"/>
+      <parameter id="VitD_nM" value="1" constant="false"/>
+      <parameter id="Sclerostin_nM" value="1" constant="false"/>
+      <parameter id="PTH_nM" value="1" constant="false"/>
+      <parameter id="IL6_nM" value="1" constant="false"/>
+    </listOfParameters>
+    <listOfRules>
+      <assignmentRule variable="EffectiveMechanicalLoad">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <ci> Gravity </ci>
+            <apply>
+              <times/>
+              <ci> ExerciseLoad </ci>
+              <cn> 0.4 </cn>
+            </apply>
+            <apply>
+              <times/>
+              <cn> 0.1 </cn>
+              <apply>
+                <minus/>
+                <cn type="integer"> 1000 </cn>
+                <ci> Gravity </ci>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="MechanoSignal">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> EffectiveMechanicalLoad </ci>
+            <apply>
+              <plus/>
+              <ci> EffectiveMechanicalLoad </ci>
+              <ci> k_load_threshold </ci>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="DisuseSignal">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <plus/>
+              <cn type="integer"> 1 </cn>
+              <apply>
+                <divide/>
+                <apply>
+                  <times/>
+                  <ci> k_mechano_sensitivity </ci>
+                  <ci> EffectiveMechanicalLoad </ci>
+                </apply>
+                <cn type="integer"> 1000 </cn>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="RadiationDamage">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <ci> k_radiation_osteoblast_damage </ci>
+              <ci> Radiation </ci>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Cortisol_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> Cortisol_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Estrogen_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> Estrogen_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="FGF23_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> FGF23_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Phosphate_mM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> Phosphate_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 21 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="VitD_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> VitaminD_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Sclerostin_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> Sclerostin_ECM </ci>
+            <cn> 6022000000000 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="PTH_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> PTH_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="IL6_nM">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> IL6_blood </ci>
+            <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="StressEffect">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <apply>
+                <minus/>
+                <ci> k_cortisol_enhance_sclero </ci>
+                <cn type="integer"> 1 </cn>
+              </apply>
+              <apply>
+                <divide/>
+                <ci> Cortisol_nM </ci>
+                <cn type="integer"> 300 </cn>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="InflammationEffect">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <ci> k_IL6_enhance_sclero </ci>
+              <apply>
+                <divide/>
+                <ci> IL6_nM </ci>
+                <cn> 0.05 </cn>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="VitD_effect">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <ci> VitD_nM </ci>
+            <cn type="integer"> 50 </cn>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Biomarker_activation">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <piecewise>
+            <piece>
+              <cn type="integer"> 0 </cn>
+              <apply>
+                <leq/>
+                <ci> Sclerostin_nM </ci>
+                <ci> biomarker_threshold </ci>
+              </apply>
+            </piece>
+            <otherwise>
+              <apply>
+                <divide/>
+                <apply>
+                  <power/>
+                  <apply>
+                    <minus/>
+                    <ci> Sclerostin_nM </ci>
+                    <ci> biomarker_threshold </ci>
+                  </apply>
+                  <ci> hill_coefficient </ci>
+                </apply>
+                <apply>
+                  <plus/>
+                  <apply>
+                    <power/>
+                    <apply>
+                      <minus/>
+                      <ci> Sclerostin_nM </ci>
+                      <ci> biomarker_threshold </ci>
+                    </apply>
+                    <ci> hill_coefficient </ci>
+                  </apply>
+                  <apply>
+                    <power/>
+                    <ci> biomarker_IC50 </ci>
+                    <ci> hill_coefficient </ci>
+                  </apply>
+                </apply>
+              </apply>
+            </otherwise>
+          </piecewise>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Biomarker_inhibition">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <plus/>
+              <cn type="integer"> 1 </cn>
+              <apply>
+                <power/>
+                <apply>
+                  <divide/>
+                  <apply>
+                    <times/>
+                    <ci> biomarker_active </ci>
+                    <ci> Biomarker_ECM </ci>
+                  </apply>
+                  <apply>
+                    <times/>
+                    <cn> 6022000000000 </cn>
+                    <ci> biomarker_IC50 </ci>
+                  </apply>
+                </apply>
+                <ci> hill_coefficient </ci>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="PTH_sclerostin_suppression">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <plus/>
+              <cn type="integer"> 1 </cn>
+              <apply>
+                <times/>
+                <cn type="integer"> 3 </cn>
+                <apply>
+                  <divide/>
+                  <ci> CREB_phosphorylated </ci>
+                  <cn> 6022000000000 </cn>
+                </apply>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="PTH_wnt_stimulation">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <cn> 1.5 </cn>
+              <apply>
+                <divide/>
+                <ci> PKA_active </ci>
+                <cn> 6022000000000 </cn>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="PTH_RANKL_effect">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <cn> 0.8 </cn>
+              <apply>
+                <divide/>
+                <ci> PTH_receptor_active </ci>
+                <cn> 6022000000000 </cn>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Wnt_LRP_active">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <piecewise>
+            <piece>
+              <cn type="integer"> 2 </cn>
+              <apply>
+                <gt/>
+                <apply>
+                  <divide/>
+                  <apply>
+                    <times/>
+                    <apply>
+                      <divide/>
+                      <ci> Wnt_ligand </ci>
+                      <cn> 6022000000000 </cn>
+                    </apply>
+                    <apply>
+                      <divide/>
+                      <ci> LRP5_LRP6 </ci>
+                      <cn> 6022000000000 </cn>
+                    </apply>
+                  </apply>
+                  <apply>
+                    <plus/>
+                    <apply>
+                      <divide/>
+                      <ci> Wnt_ligand </ci>
+                      <cn> 6022000000000 </cn>
+                    </apply>
+                    <apply>
+                      <divide/>
+                      <ci> LRP5_LRP6 </ci>
+                      <cn> 6022000000000 </cn>
+                    </apply>
+                    <cn type="integer"> 2 </cn>
+                  </apply>
+                </apply>
+                <cn type="integer"> 2 </cn>
+              </apply>
+            </piece>
+            <otherwise>
+              <apply>
+                <divide/>
+                <apply>
+                  <times/>
+                  <apply>
+                    <divide/>
+                    <ci> Wnt_ligand </ci>
+                    <cn> 6022000000000 </cn>
+                  </apply>
+                  <apply>
+                    <divide/>
+                    <ci> LRP5_LRP6 </ci>
+                    <cn> 6022000000000 </cn>
+                  </apply>
+                </apply>
+                <apply>
+                  <plus/>
+                  <apply>
+                    <divide/>
+                    <ci> Wnt_ligand </ci>
+                    <cn> 6022000000000 </cn>
+                  </apply>
+                  <apply>
+                    <divide/>
+                    <ci> LRP5_LRP6 </ci>
+                    <cn> 6022000000000 </cn>
+                  </apply>
+                  <cn type="integer"> 2 </cn>
+                </apply>
+              </apply>
+            </otherwise>
+          </piecewise>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Estrogen_effect_OPG">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <apply>
+                <minus/>
+                <ci> k_estrogen_OPG </ci>
+                <cn type="integer"> 1 </cn>
+              </apply>
+              <apply>
+                <divide/>
+                <ci> Estrogen_nM </ci>
+                <ci> k_estrogen_baseline </ci>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="Estrogen_effect_RANKL">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <divide/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <plus/>
+              <cn type="integer"> 1 </cn>
+              <apply>
+                <times/>
+                <ci> k_estrogen_RANKL </ci>
+                <apply>
+                  <divide/>
+                  <ci> Estrogen_nM </ci>
+                  <ci> k_estrogen_baseline </ci>
+                </apply>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+      <assignmentRule variable="FGF23_sclerostin_effect">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply>
+            <plus/>
+            <cn type="integer"> 1 </cn>
+            <apply>
+              <times/>
+              <apply>
+                <minus/>
+                <ci> k_FGF23_sclerostin </ci>
+                <cn type="integer"> 1 </cn>
+              </apply>
+              <apply>
+                <divide/>
+                <ci> FGF23_nM </ci>
+                <ci> k_FGF23_basal </ci>
+              </apply>
+            </apply>
+          </apply>
+        </math>
+      </assignmentRule>
+    </listOfRules>
+    <listOfReactions>
+      <reaction id="R_sclero_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="Sclerostin_ECM" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_sclero_basal </ci>
+              <ci> Osteocytes </ci>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <times/>
+                  <ci> k_disuse_sclerostin </ci>
+                  <ci> DisuseSignal </ci>
+                </apply>
+              </apply>
+              <ci> StressEffect </ci>
+              <ci> InflammationEffect </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_sclero_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Sclerostin_ECM" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_sclero_deg </ci>
+              <ci> Sclerostin_ECM </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_sclero_transport" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Sclerostin_ECM" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="Sclerostin_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_sclero_transport </ci>
+              <ci> Sclerostin_ECM </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_sclero_blood_clear" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Sclerostin_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_sclero_deg </ci>
+              <ci> Sclerostin_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_wnt_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="Wnt_ligand" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_wnt_production_basal </ci>
+              <ci> Osteoblasts </ci>
+              <ci> PTH_wnt_stimulation </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_wnt_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Wnt_ligand" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_wnt_degradation </ci>
+              <ci> Wnt_ligand </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_LRP_regeneration" reversible="false">
+        <listOfProducts>
+          <speciesReference species="LRP5_LRP6" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_LRP_regeneration </ci>
+              <apply>
+                <minus/>
+                <apply>
+                  <times/>
+                  <ci> LRP_baseline </ci>
+                  <cn> 6022000000000 </cn>
+                </apply>
+                <ci> LRP5_LRP6 </ci>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_LRP_block" reversible="false">
+        <listOfReactants>
+          <speciesReference species="LRP5_LRP6" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <divide/>
+              <apply>
+                <times/>
+                <ci> LRP5_LRP6 </ci>
+                <ci> Sclerostin_nM </ci>
+              </apply>
+              <apply>
+                <plus/>
+                <ci> Sclerostin_nM </ci>
+                <ci> k_sclerostin_LRP_block </ci>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_beta_cat_stabilization" reversible="false">
+        <listOfProducts>
+          <speciesReference species="BetaCatenin_cytoplasm" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_beta_cat_stabilization </ci>
+              <ci> Wnt_LRP_active </ci>
+              <cn> 6022000000000 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_beta_cat_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="BetaCatenin_cytoplasm" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_beta_cat_degradation </ci>
+              <ci> BetaCatenin_cytoplasm </ci>
+              <apply>
+                <minus/>
+                <cn type="integer"> 1 </cn>
+                <ci> Wnt_LRP_active </ci>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_beta_cat_nuclear_import" reversible="false">
+        <listOfReactants>
+          <speciesReference species="BetaCatenin_cytoplasm" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="BetaCatenin_nucleus" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_beta_cat_nuclear_import </ci>
+              <ci> BetaCatenin_cytoplasm </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_beta_cat_nuclear_export" reversible="false">
+        <listOfReactants>
+          <speciesReference species="BetaCatenin_nucleus" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="BetaCatenin_cytoplasm" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_beta_cat_nuclear_export </ci>
+              <ci> BetaCatenin_nucleus </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_TCF_activation" reversible="false">
+        <listOfProducts>
+          <speciesReference species="TCF_LEF" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_TCF_activation </ci>
+              <ci> BetaCatenin_nucleus </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_TCF_deactivation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="TCF_LEF" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_TCF_deactivation </ci>
+              <ci> TCF_LEF </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_RANKL_membrane_prod" reversible="false">
+        <listOfProducts>
+          <speciesReference species="RANKL_membrane" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_RANKL_membrane_prod </ci>
+              <ci> Osteoblasts </ci>
+              <ci> PTH_RANKL_effect </ci>
+              <ci> Estrogen_effect_RANKL </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_RANKL_shedding" reversible="false">
+        <listOfReactants>
+          <speciesReference species="RANKL_membrane" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_RANKL_shedding </ci>
+              <ci> RANKL_membrane </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_RANKL_soluble_deg" reversible="false">
+        <listOfReactants>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_RANKL_soluble_deg </ci>
+              <ci> RANKL_soluble </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_OPG_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="OPG_ECM" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_OPG_production </ci>
+              <ci> Osteoblasts </ci>
+              <ci> Estrogen_effect_OPG </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_OPG_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="OPG_ECM" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_OPG_degradation </ci>
+              <ci> OPG_ECM </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_RANKL_RANK_binding" reversible="false">
+        <listOfReactants>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+          <speciesReference species="RANK_osteoclast" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="RANKL_RANK_complex" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <divide/>
+              <apply>
+                <times/>
+                <ci> k_RANKL_RANK_binding </ci>
+                <ci> RANKL_soluble </ci>
+                <ci> RANK_osteoclast </ci>
+              </apply>
+              <cn> 6022000000000 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_RANKL_RANK_dissociation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="RANKL_RANK_complex" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+          <speciesReference species="RANK_osteoclast" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_RANKL_RANK_dissociation </ci>
+              <ci> RANKL_RANK_complex </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_OPG_RANKL_binding" reversible="false">
+        <listOfReactants>
+          <speciesReference species="OPG_ECM" stoichiometry="1" constant="true"/>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="RANKL_OPG_complex" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <divide/>
+              <apply>
+                <times/>
+                <ci> k_OPG_RANKL_binding </ci>
+                <ci> OPG_ECM </ci>
+                <ci> RANKL_soluble </ci>
+              </apply>
+              <cn> 6022000000000 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_OPG_RANKL_dissociation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="RANKL_OPG_complex" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="OPG_ECM" stoichiometry="1" constant="true"/>
+          <speciesReference species="RANKL_soluble" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_OPG_RANKL_dissociation </ci>
+              <ci> RANKL_OPG_complex </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_osteoblast_diff" reversible="false">
+        <listOfReactants>
+          <speciesReference species="OsteoblastPrecursors" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="Osteoblasts" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <divide/>
+              <apply>
+                <times/>
+                <ci> k_osteoblast_diff </ci>
+                <ci> OsteoblastPrecursors </ci>
+                <apply>
+                  <plus/>
+                  <cn type="integer"> 1 </cn>
+                  <ci> Wnt_LRP_active </ci>
+                </apply>
+                <apply>
+                  <divide/>
+                  <cn type="integer"> 1000 </cn>
+                  <apply>
+                    <plus/>
+                    <cn type="integer"> 1000 </cn>
+                    <ci> Osteoblasts </ci>
+                  </apply>
+                </apply>
+              </apply>
+              <ci> RadiationDamage </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_osteoblast_apoptosis" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Osteoblasts" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_osteoblast_apoptosis </ci>
+              <ci> Osteoblasts </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_osteoclast_diff" reversible="false">
+        <listOfReactants>
+          <speciesReference species="OsteoclastPrecursors" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="Osteoclasts" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_osteoclast_diff </ci>
+              <ci> OsteoclastPrecursors </ci>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <divide/>
+                  <ci> RANKL_RANK_complex </ci>
+                  <apply>
+                    <times/>
+                    <ci> RANK_baseline </ci>
+                    <cn> 6022000000000 </cn>
+                  </apply>
+                </apply>
+              </apply>
+              <apply>
+                <divide/>
+                <cn type="integer"> 200 </cn>
+                <apply>
+                  <plus/>
+                  <cn type="integer"> 200 </cn>
+                  <ci> Osteoclasts </ci>
+                </apply>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_osteoclast_apoptosis" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Osteoclasts" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_osteoclast_apoptosis </ci>
+              <ci> Osteoclasts </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_osteocyte_apoptosis" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Osteocytes" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <piecewise>
+              <piece>
+                <cn type="integer"> 0 </cn>
+                <apply>
+                  <leq/>
+                  <ci> Osteocytes </ci>
+                  <ci> min_osteocytes </ci>
+                </apply>
+              </piece>
+              <otherwise>
+                <apply>
+                  <times/>
+                  <ci> k_osteocyte_apoptosis_base </ci>
+                  <ci> Osteocytes </ci>
+                  <apply>
+                    <plus/>
+                    <cn type="integer"> 1 </cn>
+                    <apply>
+                      <times/>
+                      <ci> k_radiation_ocy_apoptosis </ci>
+                      <ci> Radiation </ci>
+                    </apply>
+                  </apply>
+                </apply>
+              </otherwise>
+            </piecewise>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_precursor_replenish_ob" reversible="false">
+        <listOfProducts>
+          <speciesReference species="OsteoblastPrecursors" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_precursor_replenish </ci>
+              <apply>
+                <minus/>
+                <cn type="integer"> 200 </cn>
+                <ci> OsteoblastPrecursors </ci>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_precursor_replenish_oc" reversible="false">
+        <listOfProducts>
+          <speciesReference species="OsteoclastPrecursors" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_precursor_replenish </ci>
+              <apply>
+                <minus/>
+                <cn type="integer"> 100 </cn>
+                <ci> OsteoclastPrecursors </ci>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_bone_formation" reversible="false">
+        <listOfProducts>
+          <speciesReference species="BoneMass" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_bone_formation </ci>
+              <ci> Osteoblasts </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_bone_resorption" reversible="false">
+        <listOfReactants>
+          <speciesReference species="BoneMass" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <piecewise>
+              <piece>
+                <cn type="integer"> 0 </cn>
+                <apply>
+                  <leq/>
+                  <ci> BoneMass </ci>
+                  <ci> min_bone_mass </ci>
+                </apply>
+              </piece>
+              <otherwise>
+                <apply>
+                  <times/>
+                  <ci> k_bone_resorption </ci>
+                  <ci> Osteoclasts </ci>
+                </apply>
+              </otherwise>
+            </piecewise>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PTH_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="PTH_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PTH_basal </ci>
+              <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+              <ci> k_PTH_deg </ci>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <times/>
+                  <ci> biomarker_active </ci>
+                  <cn type="integer"> 5 </cn>
+                  <ci> Biomarker_activation </ci>
+                </apply>
+              </apply>
+              <ci> PTH_dysregulation_factor </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PTH_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="PTH_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PTH_deg </ci>
+              <ci> PTH_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PTH_to_bone" reversible="false">
+        <listOfReactants>
+          <speciesReference species="PTH_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="PTH_ECM" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PTH_from_bone </ci>
+              <ci> PTH_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PTH_receptor_binding" reversible="false">
+        <listOfReactants>
+          <speciesReference species="PTH_ECM" stoichiometry="1" constant="true"/>
+          <speciesReference species="PTH_receptor" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="PTH_receptor_active" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <divide/>
+              <apply>
+                <times/>
+                <ci> k_PTH_receptor_binding </ci>
+                <ci> PTH_ECM </ci>
+                <ci> PTH_receptor </ci>
+              </apply>
+              <cn> 6022000000000 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PTH_receptor_dissociation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="PTH_receptor_active" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="PTH_ECM" stoichiometry="1" constant="true"/>
+          <speciesReference species="PTH_receptor" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PTH_receptor_dissociation </ci>
+              <ci> PTH_receptor_active </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_cAMP_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="cAMP" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_cAMP_production </ci>
+              <ci> PTH_receptor_active </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_cAMP_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="cAMP" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_cAMP_degradation </ci>
+              <ci> cAMP </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PKA_activation" reversible="false">
+        <listOfProducts>
+          <speciesReference species="PKA_active" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PKA_activation </ci>
+              <ci> cAMP </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_PKA_deactivation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="PKA_active" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_PKA_deactivation </ci>
+              <ci> PKA_active </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_CREB_phosphorylation" reversible="false">
+        <listOfProducts>
+          <speciesReference species="CREB_phosphorylated" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_CREB_phosphorylation </ci>
+              <ci> PKA_active </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_CREB_dephosphorylation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="CREB_phosphorylated" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_CREB_dephosphorylation </ci>
+              <ci> CREB_phosphorylated </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_cortisol_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="Cortisol_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_cortisol_prod </ci>
+              <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <divide/>
+                  <ci> StressHormones </ci>
+                  <cn type="integer"> 1000 </cn>
+                </apply>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_cortisol_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Cortisol_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_cortisol_deg </ci>
+              <ci> Cortisol_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_IL6_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="IL6_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_IL6_prod </ci>
+              <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <times/>
+                  <ci> k_radiation_inflammation </ci>
+                  <ci> Radiation </ci>
+                </apply>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_IL6_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="IL6_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_IL6_deg </ci>
+              <ci> IL6_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_phosphate_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="Phosphate_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_phosphate_accumulation </ci>
+              <cn type="e-notation"> 3.011 <sep/> 21 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_phosphate_clearance" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Phosphate_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <piecewise>
+              <piece>
+                <cn type="integer"> 0 </cn>
+                <apply>
+                  <leq/>
+                  <ci> Phosphate_mM </ci>
+                  <ci> min_phosphate_mM </ci>
+                </apply>
+              </piece>
+              <otherwise>
+                <apply>
+                  <times/>
+                  <ci> k_phosphate_clearance </ci>
+                  <ci> Phosphate_blood </ci>
+                </apply>
+              </otherwise>
+            </piecewise>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_FGF23_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="FGF23_blood" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_FGF23_basal </ci>
+              <cn type="e-notation"> 3.011 <sep/> 15 </cn>
+              <ci> k_FGF23_deg </ci>
+              <apply>
+                <plus/>
+                <cn type="integer"> 1 </cn>
+                <apply>
+                  <times/>
+                  <ci> k_FGF23_phosphate </ci>
+                  <apply>
+                    <minus/>
+                    <ci> Phosphate_mM </ci>
+                    <cn> 1.1 </cn>
+                  </apply>
+                </apply>
+              </apply>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_FGF23_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="FGF23_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_FGF23_deg </ci>
+              <ci> FGF23_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_biomarker_production" reversible="false">
+        <listOfProducts>
+          <speciesReference species="Biomarker_ECM" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_biomarker_response </ci>
+              <ci> Biomarker_activation </ci>
+              <cn> 6022000000000 </cn>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_biomarker_degradation" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Biomarker_ECM" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_biomarker_deg </ci>
+              <ci> Biomarker_ECM </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="R_estrogen_decline" reversible="false">
+        <listOfReactants>
+          <speciesReference species="Estrogen_blood" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_estrogen_decline </ci>
+              <ci> Estrogen_blood </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+    <listOfEvents>
+      <event id="biomarker_activation_event" useValuesFromTriggerTime="true">
+        <trigger initialValue="false" persistent="true">
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <gt/>
+              <ci> Sclerostin_nM </ci>
+              <ci> biomarker_threshold </ci>
+            </apply>
+          </math>
+        </trigger>
+        <listOfEventAssignments>
+          <eventAssignment variable="biomarker_active">
+            <math xmlns="http://www.w3.org/1998/Math/MathML">
+              <cn> 1 </cn>
+            </math>
+          </eventAssignment>
+        </listOfEventAssignments>
+      </event>
+    </listOfEvents>
+  </model>
+</sbml>
