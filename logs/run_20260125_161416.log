@@ -1,0 +1,1178 @@
+Ã°Å¸â€Â Logging to: logs\run_20260125_161416.log
+Ã°Å¸Â§Â¬ Synthetic Biology Biosensor Design Pipeline
+============================================================
+
+Ã°Å¸Å¡â‚¬ Starting automated analysis...
+Ã°Å¸â€œÅ  RL Timesteps: 5000000
+============================================================
+
+Ã°Å¸Å½Â¯ Sclerostin Biosensor RL Optimization
+   Single dataset: Sclerostin simulations with 3 scenarios
+   Scenarios: healthy, pmo (post-menopausal osteoporosis), ckd_mbd
+
+Ã°Å¸Å¡â‚¬ Initializing pipeline...
+Ã°Å¸Å¡â‚¬ Biosensor Pipeline initialized
+Ã°Å¸â€œÂ Output directory: RL\sclerostin_rl_results
+Ã°Å¸Å½Â¯ Target metrics: 4 focused metrics
+ðŸ Starting Complete Biosensor Pipeline
+==================================================
+
+ðŸ¤” ML Model Options:
+   [1] Use cached ML models (fast, if available)
+   [2] Train new ML models (slow, always fresh)
+   Your choice (1 or 2): 
+ðŸ“Š STAGE 1: Data Preprocessing & Feature Selection
+Ã°Å¸â€œÅ  Loading Sclerostin simulation dataset: data/master_index.csv
+Ã¢Å“â€¦ Master index loaded: (5000, 11) simulations
+Ã°Å¸â€œâ€š Extracting biosensor configurations from metadata files...
+   Processed 100/5000 simulations...
+   Processed 200/5000 simulations...
+   Processed 300/5000 simulations...
+   Processed 400/5000 simulations...
+   Processed 500/5000 simulations...
+   Processed 600/5000 simulations...
+   Processed 700/5000 simulations...
+   Processed 800/5000 simulations...
+   Processed 900/5000 simulations...
+   Processed 1000/5000 simulations...
+   Processed 1100/5000 simulations...
+   Processed 1200/5000 simulations...
+   Processed 1300/5000 simulations...
+   Processed 1400/5000 simulations...
+   Processed 1500/5000 simulations...
+   Processed 1600/5000 simulations...
+   Processed 1700/5000 simulations...
+   Processed 1800/5000 simulations...
+   Processed 1900/5000 simulations...
+   Processed 2000/5000 simulations...
+   Processed 2100/5000 simulations...
+   Processed 2200/5000 simulations...
+   Processed 2300/5000 simulations...
+   Processed 2400/5000 simulations...
+   Processed 2500/5000 simulations...
+   Processed 2600/5000 simulations...
+   Processed 2700/5000 simulations...
+   Processed 2800/5000 simulations...
+   Processed 2900/5000 simulations...
+   Processed 3000/5000 simulations...
+   Processed 3100/5000 simulations...
+   Processed 3200/5000 simulations...
+   Processed 3300/5000 simulations...
+   Processed 3400/5000 simulations...
+   Processed 3500/5000 simulations...
+   Processed 3600/5000 simulations...
+   Processed 3700/5000 simulations...
+   Processed 3800/5000 simulations...
+   Processed 3900/5000 simulations...
+   Processed 4000/5000 simulations...
+   Processed 4100/5000 simulations...
+   Processed 4200/5000 simulations...
+   Processed 4300/5000 simulations...
+   Processed 4400/5000 simulations...
+   Processed 4500/5000 simulations...
+   Processed 4600/5000 simulations...
+   Processed 4700/5000 simulations...
+   Processed 4800/5000 simulations...
+   Processed 4900/5000 simulations...
+   Processed 5000/5000 simulations...
+Ã¢Å“â€¦ Extracted features from 5000 simulations
+   Shape: (5000, 26)
+Ã¢Å“â€¦ All target metrics available: ['signal_to_noise_ratio_SNR', 'false_negative_rate', 'time_to_detection_threshold', 'dynamic_range_of_output']
+Ã°Å¸â€œÅ  Calculating multi-objective score...
+Calculating multi-objective score...
+   Multi-objective score calculated: mean=0.6967, std=0.1501
+Ã¢Å“â€¦ Multi-objective score calculated
+
+Ã°Å¸â€œË† Dataset Summary:
+   Scenarios: {'pmo': 1696, 'ckd_mbd': 1672, 'healthy': 1632}
+   Circuit types: {'amplifying': 1284, 'threshold': 1256, 'ratiometric': 1237, 'direct_binding': 1223}
+   Noise levels: {'medium': 2525, 'high': 1496, 'low': 979}
+Ã°Å¸â€â€ž Starting advanced data preprocessing with proper variable classification...
+Ã°Å¸Â§Â¹ Handling missing values...
+   Missing values: 0 Ã¢â€ â€™ 0
+Ã°Å¸Å½Â¯ Separating variables by classification...
+Ã°Å¸â€œâ€¹ Modifiable features (RL actions): 9
+Ã°Å¸â€œâ€¹ Fixed features (environment): 10
+Ã°Å¸â€œâ€¹ Output metrics (targets): 4
+Ã°Å¸â€Â¤ Encoding categorical variables...
+   circuit_type: 4 categories -> [0, 3]
+   response_type: 3 categories -> [0, 2]
+   scenario: 3 categories -> [0, 2]
+   noise_preset: 3 categories -> [0, 2]
+   Categorical features label-encoded: 4 columns
+      circuit_type: 4 categories stored
+      response_type: 3 categories stored
+      scenario: 3 categories stored
+      noise_preset: 3 categories stored
+Ã°Å¸â€œÂ Scaling numerical features...
+Feature selection for Sclerostin biosensor...
+   Using all 19 available features (no selection)
+   - Modifiable: 9
+   - Fixed: 10
+   Feature selection: 19 Ã¢â€ â€™ 19 features
+Ã¢Å“â€šÃ¯Â¸Â Splitting data...
+Ã¢Å“â€¦ Advanced preprocessing with proper classification completed!
+   Final shape: (5000, 19)
+   Train/Test: 4000/1000
+   Features: 19 Ã¢â€ â€™ 19 (1.00)
+   Modifiable: 9, Fixed: 10
+   Target metrics: 4
+
+Ã°Å¸â€Â VALIDATION: Feature Classification
+   Total features in X: 19
+   Modifiable features found: 9
+   Fixed features found: 10
+📊 Augmenting training data by 2x...
+✅ Augmented: 12000 samples (from 4000)
+Ã°Å¸â€œÅ  Creating distribution plots for 4 target metrics...
+Ã°Å¸â€™Â¾ Saving plots to: RL\sclerostin_rl_results\plots\target_metric_plots/
+Ã¢Å“â€¦ Saved: signal_to_noise_ratio_SNR_distribution.png
+Ã¢Å“â€¦ Saved: false_negative_rate_distribution.png
+Ã¢Å“â€¦ Saved: time_to_detection_threshold_distribution.png
+Ã¢Å“â€¦ Saved: dynamic_range_of_output_distribution.png
+Ã°Å¸Å½â€° All distribution plots saved to RL\sclerostin_rl_results\plots\target_metric_plots/
+Ã¢Å“â€¦ Saved correlation matrix: target_metrics_correlation_matrix.png
+Ã¢Å“â€¦ Saved summary plot: target_metrics_summary.png
+
+ðŸ“‚ Loading cached ML models...
+   âœ… Loaded feature mappings for 4 metrics
+   📦 Found 4 cached scalers
+   ✅ Loaded fitted scaler for signal_to_noise_ratio_SNR (17 features)
+   ✅ Loaded fitted scaler for time_to_detection_threshold (17 features)
+   ✅ Loaded fitted scaler for dynamic_range_of_output (19 features)
+   ✅ Loaded fitted scaler for false_negative_rate (19 features)
+   📊 Verification: 4 scalers loaded
+   ✅ Verified signal_to_noise_ratio_SNR: 17 features, center range [0.000, 0.000]
+   ✅ Verified false_negative_rate: 19 features, center range [0.000, 0.000]
+   ✅ Verified time_to_detection_threshold: 17 features, center range [0.000, 0.000]
+   ✅ Verified dynamic_range_of_output: 19 features, center range [0.000, 0.000]
+   🎉 All 4 scalers verified!
+   ✅ All target metrics have valid scalers
+   âœ… sklearn model signal_to_noise_ratio_SNR loaded
+   âœ… sklearn model time_to_detection_threshold loaded
+   âœ… sklearn model dynamic_range_of_output loaded
+   âœ… sklearn model false_negative_rate loaded
+   âœ… Surrogate models loaded
+   âœ… ML models loaded
+   ðŸŽ‰ All cached models loaded successfully!
+
+âœ… STAGE 2-3: Using cached ML models (skipped training)
+
+ðŸŽ® STAGE 4: Reinforcement Learning
+Ã°Å¸Å½Â® Setting up RL environment for: ['signal_to_noise_ratio_SNR', 'false_negative_rate', 'time_to_detection_threshold', 'dynamic_range_of_output']
+   RL Agent can ONLY modify circuit design parameters!
+Calculating modifiable feature bounds...
+  biosensor_sensitivity: [-1.019487, 14.294675]
+  biosensor_threshold: [-1.727041, 1.739837]
+  biosensor_kd: [-0.945887, 15.179698]
+  biosensor_dynamic_range_max: [-1.754909, 1.702115]
+  hill_coefficient: [-0.485425, 3.274563]
+  off_level: [-1.317217, 3.683072]
+  on_level: [-2.296943, 3.839417]
+  circuit_type: [-1.326940, 1.339383]
+  response_type: [-1.197202, 1.246566]
+Calculating fixed feature values...
+  sclerostin_concentration: -0.005787 (fixed)
+  estrogen: 0.000140 (fixed)
+  pth: -0.006753 (fixed)
+  rankl_concentration: 0.003885 (fixed)
+  opg_concentration: 0.002860 (fixed)
+  mineral_ion: -0.000065 (fixed)
+  sclerostin_max: -0.005936 (fixed)
+  sclerostin_std: -0.005038 (fixed)
+  scenario: 0.005828 (fixed)
+  noise_preset: 0.012641 (fixed)
+ðŸ“Š Calculating data ranges for MOS normalization...
+   âœ… signal_to_noise_ratio_SNR: [-8.0968, 35.4598]
+   âœ… dynamic_range_of_output: [-0.1471, 18.4946]
+   âœ… false_negative_rate: [-0.0004, 0.0087]
+   âœ… time_to_detection_threshold: [-0.5000, 10.5000]
+
+âœ… Stored data_min_max globally: 4 metrics
+
+Ã°Å¸â€Â Verifying RL environment setup...
+   Requested target_metrics: ['signal_to_noise_ratio_SNR', 'false_negative_rate', 'time_to_detection_threshold', 'dynamic_range_of_output']
+   Available surrogate_models: ['signal_to_noise_ratio_SNR', 'time_to_detection_threshold', 'dynamic_range_of_output', 'false_negative_rate']
+
+ðŸ” Pre-flight check: Validating scalers...
+   âœ… All 4 metric scalers validated
+      signal_to_noise_ratio_SNR: RobustScaler, 17 features
+      false_negative_rate: RobustScaler, 19 features
+      time_to_detection_threshold: RobustScaler, 17 features
+      dynamic_range_of_output: RobustScaler, 19 features
+   âœ… Backed up 4 scalers at pipeline level
+Ã°Å¸Å¡â‚¬ Creating 4 vectorized environments (DummyVecEnv)...
+   âœ… Environment 2399534763712: data_min_max stored with 4 metrics
+   âœ… data_min_max: 4 metrics
+   âœ… Simplified action space: 28 actions
+   ✅ Action space created: Box(-1.0, 1.0, (7,), float32)
+   ✅ Continuous action space: 7 dimensions
+   ✅ Observation space: 50 dimensions
+      = 9 features + 4 predictions + 4 gaps + 6 context
+      + 9 bounds + 9 velocity + 9 momentum
+   âœ… Observation space: 50 dimensions
+Validating surrogate models...
+Ã¢Å“â€¦ Surrogate model signal_to_noise_ratio_SNR validated (sklearn)
+Ã¢Å“â€¦ Surrogate model time_to_detection_threshold validated (sklearn)
+Ã¢Å“â€¦ Surrogate model dynamic_range_of_output validated (sklearn)
+Ã¢Å“â€¦ Surrogate model false_negative_rate validated (sklearn)
+âœ… Environment initialized: 9 modifiable parameters
+   âœ… Environment 2399493874512: data_min_max stored with 4 metrics
+   âœ… Simplified action space: 28 actions
+   ✅ Action space created: Box(-1.0, 1.0, (7,), float32)
+   ✅ Continuous action space: 7 dimensions
+   ✅ Observation space: 50 dimensions
+      = 9 features + 4 predictions + 4 gaps + 6 context
+      + 9 bounds + 9 velocity + 9 momentum
+   âœ… Observation space: 50 dimensions
+Validating surrogate models...
+Ã¢Å“â€¦ Surrogate model signal_to_noise_ratio_SNR validated (sklearn)
+Ã¢Å“â€¦ Surrogate model time_to_detection_threshold validated (sklearn)
+Ã¢Å“â€¦ Surrogate model dynamic_range_of_output validated (sklearn)
+Ã¢Å“â€¦ Surrogate model false_negative_rate validated (sklearn)
+âœ… Environment initialized: 9 modifiable parameters
+   âœ… Environment 2399496463824: data_min_max stored with 4 metrics
+   âœ… Simplified action space: 28 actions
+   ✅ Action space created: Box(-1.0, 1.0, (7,), float32)
+   ✅ Continuous action space: 7 dimensions
+   ✅ Observation space: 50 dimensions
+      = 9 features + 4 predictions + 4 gaps + 6 context
+      + 9 bounds + 9 velocity + 9 momentum
+   âœ… Observation space: 50 dimensions
+Validating surrogate models...
+Ã¢Å“â€¦ Surrogate model signal_to_noise_ratio_SNR validated (sklearn)
+Ã¢Å“â€¦ Surrogate model time_to_detection_threshold validated (sklearn)
+Ã¢Å“â€¦ Surrogate model dynamic_range_of_output validated (sklearn)
+Ã¢Å“â€¦ Surrogate model false_negative_rate validated (sklearn)
+âœ… Environment initialized: 9 modifiable parameters
+   âœ… Environment 2399496464144: data_min_max stored with 4 metrics
+   âœ… Simplified action space: 28 actions
+   ✅ Action space created: Box(-1.0, 1.0, (7,), float32)
+   ✅ Continuous action space: 7 dimensions
+   ✅ Observation space: 50 dimensions
+      = 9 features + 4 predictions + 4 gaps + 6 context
+      + 9 bounds + 9 velocity + 9 momentum
+   âœ… Observation space: 50 dimensions
+Validating surrogate models...
+Ã¢Å“â€¦ Surrogate model signal_to_noise_ratio_SNR validated (sklearn)
+Ã¢Å“â€¦ Surrogate model time_to_detection_threshold validated (sklearn)
+Ã¢Å“â€¦ Surrogate model dynamic_range_of_output validated (sklearn)
+Ã¢Å“â€¦ Surrogate model false_negative_rate validated (sklearn)
+âœ… Environment initialized: 9 modifiable parameters
+
+ðŸ” VALIDATION: Testing environment data_min_max...
+   âœ… Env 0: 4 metrics stored
+   âœ… Env 1: 4 metrics stored
+âœ… All environments validated successfully!
+Ã¢Å“â€¦ Vectorized environments created successfully!
+
+Ã°Å¸Â§Âª Testing RL environment setup...
+Ã¢Å“â€¦ Reset successful, obs shape: (4, 50)
+   Testing with 4 parallel environments, actions shape: (4, 7)
+   DEBUG: info type = <class 'list'>
+   DEBUG: info shape/len = 4
+   DEBUG: First element type = <class 'dict'>
+   Ã¢Å“â€¦ Vectorized env detected: 4 parallel environments
+Ã¢Å“â€¦ Step successful
+   Reward: [0.5689555  0.57042795 0.56492925 0.5750856 ] (valid: True)
+   Done: [False False False False] (bool: True)
+   Predictions: ['signal_to_noise_ratio_SNR', 'time_to_detection_threshold', 'dynamic_range_of_output', 'false_negative_rate', 'reward_components', 'mos_score', 'constraint_penalty']
+Ã¢Å“â€¦ Advanced RL environment with proper variable classification created!
+
+ðŸ” DIAGNOSTIC: Checking scaler storage...
+   âœ… surrogate_metric_scalers exists with 4 scalers
+      signal_to_noise_ratio_SNR: RobustScaler
+      time_to_detection_threshold: RobustScaler
+      dynamic_range_of_output: RobustScaler
+      false_negative_rate: RobustScaler
+
+ðŸ” DIAGNOSTIC: Test environment data_min_max...
+   Has attribute: True
+   Length: 4
+   Keys: ['signal_to_noise_ratio_SNR', 'dynamic_range_of_output', 'false_negative_rate', 'time_to_detection_threshold']
+Ã°Å¸Å½Â¯ Training RL agents for 5000000 timesteps...
+   Initializing PPO agent (DQN removed for continuous actions)...
+Using cpu device
+      ✅ PPO initialized for continuous action space: Box(-1.0, 1.0, (7,), float32)
+   Training PPO with exploration focus...
+      PPO Training chunk 1/30 (166666 steps)...
+Episode 3: Total=107.3017, Mean=0.5365, Steps=200
+Episode 3: Total=112.5747, Mean=0.5629, Steps=200
+Episode 3: Total=112.0295, Mean=0.5601, Steps=200
+Episode 3: Total=113.5908, Mean=0.5680, Steps=200
+Episode 4: Total=112.6405, Mean=0.5632, Steps=200
+Episode 4: Total=114.5410, Mean=0.5727, Steps=200
+Episode 4: Total=112.9718, Mean=0.5649, Steps=200
+Episode 4: Total=115.4867, Mean=0.5774, Steps=200
+Episode 5: Total=109.8391, Mean=0.5492, Steps=200
+Episode 5: Total=111.7629, Mean=0.5588, Steps=200
+Episode 5: Total=111.2149, Mean=0.5561, Steps=200
+Episode 5: Total=112.8961, Mean=0.5645, Steps=200
+Episode 6: Total=111.6386, Mean=0.5582, Steps=200
+Episode 6: Total=112.3470, Mean=0.5617, Steps=200
+Episode 6: Total=111.7004, Mean=0.5585, Steps=200
+Episode 6: Total=111.9485, Mean=0.5597, Steps=200
+Episode 7: Total=108.0070, Mean=0.5400, Steps=200
+Episode 7: Total=111.8538, Mean=0.5593, Steps=200
+Episode 7: Total=113.5465, Mean=0.5677, Steps=200
+Episode 7: Total=108.1448, Mean=0.5407, Steps=200
+Episode 8: Total=110.0251, Mean=0.5501, Steps=200
+Episode 8: Total=112.5203, Mean=0.5626, Steps=200
+Episode 8: Total=112.5431, Mean=0.5627, Steps=200
+Episode 8: Total=112.2816, Mean=0.5614, Steps=200
+Episode 9: Total=113.0453, Mean=0.5652, Steps=200
+Episode 9: Total=112.7849, Mean=0.5639, Steps=200
+Episode 9: Total=110.7686, Mean=0.5538, Steps=200
+Episode 9: Total=110.7108, Mean=0.5536, Steps=200
+Episode 10: Total=114.8362, Mean=0.5742, Steps=200
+Episode 10: Total=113.9830, Mean=0.5699, Steps=200
+Episode 10: Total=108.6694, Mean=0.5433, Steps=200
+Episode 10: Total=106.4566, Mean=0.5323, Steps=200
+Episode 11: Total=110.3743, Mean=0.5519, Steps=200
+Episode 11: Total=111.4831, Mean=0.5574, Steps=200
+Episode 11: Total=114.1075, Mean=0.5705, Steps=200
+Episode 11: Total=109.1135, Mean=0.5456, Steps=200
+Episode 12: Total=109.3619, Mean=0.5468, Steps=200
+Episode 12: Total=117.1288, Mean=0.5856, Steps=200
+Episode 12: Total=111.2651, Mean=0.5563, Steps=200
+Episode 12: Total=108.3936, Mean=0.5420, Steps=200
+Episode 13: Total=108.4567, Mean=0.5423, Steps=200
+Episode 13: Total=110.6643, Mean=0.5533, Steps=200
+Episode 13: Total=109.6941, Mean=0.5485, Steps=200
+Episode 13: Total=109.7577, Mean=0.5488, Steps=200
+Episode 14: Total=112.1472, Mean=0.5607, Steps=200
+Episode 14: Total=112.8473, Mean=0.5642, Steps=200
+Episode 14: Total=111.0513, Mean=0.5553, Steps=200
+Episode 14: Total=113.2786, Mean=0.5664, Steps=200
+Episode 15: Total=111.9916, Mean=0.5600, Steps=200
+Episode 15: Total=112.9198, Mean=0.5646, Steps=200
+Episode 15: Total=111.2531, Mean=0.5563, Steps=200
+Episode 15: Total=113.6252, Mean=0.5681, Steps=200
+Episode 16: Total=107.9117, Mean=0.5396, Steps=200
+Episode 16: Total=110.4242, Mean=0.5521, Steps=200
+Episode 16: Total=111.5514, Mean=0.5578, Steps=200
+Episode 16: Total=112.1119, Mean=0.5606, Steps=200
+Episode 17: Total=111.2574, Mean=0.5563, Steps=200
+Episode 17: Total=111.9160, Mean=0.5596, Steps=200
+Episode 17: Total=113.3280, Mean=0.5666, Steps=200
+Episode 17: Total=114.4937, Mean=0.5725, Steps=200
+Episode 18: Total=113.1348, Mean=0.5657, Steps=200
+Episode 18: Total=113.0892, Mean=0.5654, Steps=200
+Episode 18: Total=107.8653, Mean=0.5393, Steps=200
+Episode 18: Total=107.3029, Mean=0.5365, Steps=200
+Episode 19: Total=111.3767, Mean=0.5569, Steps=200
+Episode 19: Total=116.5979, Mean=0.5830, Steps=200
+Episode 19: Total=111.8890, Mean=0.5594, Steps=200
+Episode 19: Total=113.9637, Mean=0.5698, Steps=200
+Episode 20: Total=110.0845, Mean=0.5504, Steps=200
+Episode 20: Total=114.0043, Mean=0.5700, Steps=200
+Episode 20: Total=111.1807, Mean=0.5559, Steps=200
+Episode 20: Total=113.6405, Mean=0.5682, Steps=200
+Episode 21: Total=116.0189, Mean=0.5801, Steps=200
+Episode 21: Total=109.3603, Mean=0.5468, Steps=200
+Episode 21: Total=113.1248, Mean=0.5656, Steps=200
+Episode 21: Total=111.5791, Mean=0.5579, Steps=200
+Episode 22: Total=112.1086, Mean=0.5605, Steps=200
+Episode 22: Total=109.7746, Mean=0.5489, Steps=200
+Episode 22: Total=110.4907, Mean=0.5525, Steps=200
+Episode 22: Total=110.0132, Mean=0.5501, Steps=200
+Episode 23: Total=109.4735, Mean=0.5474, Steps=200
+Episode 23: Total=112.7637, Mean=0.5638, Steps=200
+Episode 23: Total=111.7739, Mean=0.5589, Steps=200
+Episode 23: Total=114.4571, Mean=0.5723, Steps=200
+Episode 24: Total=111.5412, Mean=0.5577, Steps=200
+Episode 24: Total=111.3531, Mean=0.5568, Steps=200
+Episode 24: Total=109.9392, Mean=0.5497, Steps=200
+Episode 24: Total=108.5053, Mean=0.5425, Steps=200
+Episode 25: Total=108.5029, Mean=0.5425, Steps=200
+Episode 25: Total=112.7865, Mean=0.5639, Steps=200
+Episode 25: Total=112.9170, Mean=0.5646, Steps=200
+Episode 25: Total=110.8274, Mean=0.5541, Steps=200
+Episode 26: Total=108.5839, Mean=0.5429, Steps=200
+Episode 26: Total=110.0680, Mean=0.5503, Steps=200
+Episode 26: Total=108.6841, Mean=0.5434, Steps=200
+Episode 26: Total=110.9805, Mean=0.5549, Steps=200
+Episode 27: Total=114.3996, Mean=0.5720, Steps=200
+Episode 27: Total=112.4700, Mean=0.5623, Steps=200
+Episode 27: Total=111.0666, Mean=0.5553, Steps=200
+Episode 27: Total=109.7810, Mean=0.5489, Steps=200
+Episode 28: Total=111.4757, Mean=0.5574, Steps=200
+Episode 28: Total=111.3105, Mean=0.5566, Steps=200
+Episode 28: Total=109.9729, Mean=0.5499, Steps=200
+Episode 28: Total=111.9001, Mean=0.5595, Steps=200
+Episode 29: Total=109.7111, Mean=0.5486, Steps=200
+Episode 29: Total=109.8954, Mean=0.5495, Steps=200
+Episode 29: Total=112.1685, Mean=0.5608, Steps=200
+Episode 29: Total=110.1043, Mean=0.5505, Steps=200
+Episode 30: Total=111.5203, Mean=0.5576, Steps=200
+Episode 30: Total=113.3507, Mean=0.5668, Steps=200
+Episode 30: Total=110.8661, Mean=0.5543, Steps=200
+Episode 30: Total=112.5236, Mean=0.5626, Steps=200
+Episode 31: Total=112.7860, Mean=0.5639, Steps=200
+Episode 31: Total=112.8186, Mean=0.5641, Steps=200
+Episode 31: Total=112.1028, Mean=0.5605, Steps=200
+Episode 31: Total=110.7135, Mean=0.5536, Steps=200
+Episode 32: Total=115.3677, Mean=0.5768, Steps=200
+Episode 32: Total=112.8123, Mean=0.5641, Steps=200
+Episode 32: Total=110.9770, Mean=0.5549, Steps=200
+Episode 32: Total=108.2583, Mean=0.5413, Steps=200
+Episode 33: Total=114.2951, Mean=0.5715, Steps=200
+Episode 33: Total=111.1823, Mean=0.5559, Steps=200
+Episode 33: Total=110.6484, Mean=0.5532, Steps=200
+Episode 33: Total=108.2040, Mean=0.5410, Steps=200
+Episode 34: Total=113.0724, Mean=0.5654, Steps=200
+Episode 34: Total=113.4548, Mean=0.5673, Steps=200
+Episode 34: Total=113.3275, Mean=0.5666, Steps=200
+Episode 34: Total=112.4990, Mean=0.5625, Steps=200
+Episode 35: Total=112.1939, Mean=0.5610, Steps=200
+Episode 35: Total=113.5824, Mean=0.5679, Steps=200
+Episode 35: Total=112.2928, Mean=0.5615, Steps=200
+Episode 35: Total=110.9153, Mean=0.5546, Steps=200
+Episode 36: Total=111.3824, Mean=0.5569, Steps=200
+Episode 36: Total=113.7449, Mean=0.5687, Steps=200
+Episode 36: Total=112.3258, Mean=0.5616, Steps=200
+Episode 36: Total=113.4922, Mean=0.5675, Steps=200
+Episode 37: Total=110.0309, Mean=0.5502, Steps=200
+Episode 37: Total=112.9857, Mean=0.5649, Steps=200
+Episode 37: Total=111.0577, Mean=0.5553, Steps=200
+Episode 37: Total=109.4965, Mean=0.5475, Steps=200
+Episode 38: Total=110.3381, Mean=0.5517, Steps=200
+Episode 38: Total=113.0731, Mean=0.5654, Steps=200
+Episode 38: Total=112.9369, Mean=0.5647, Steps=200
+Episode 38: Total=113.4995, Mean=0.5675, Steps=200
+Episode 39: Total=112.2392, Mean=0.5612, Steps=200
+Episode 39: Total=114.2361, Mean=0.5712, Steps=200
+Episode 39: Total=111.7703, Mean=0.5589, Steps=200
+Episode 39: Total=106.7369, Mean=0.5337, Steps=200
+Episode 40: Total=110.5059, Mean=0.5525, Steps=200
+Episode 40: Total=113.6748, Mean=0.5684, Steps=200
+Episode 40: Total=110.1752, Mean=0.5509, Steps=200
+Episode 40: Total=112.5383, Mean=0.5627, Steps=200
+Episode 41: Total=114.2225, Mean=0.5711, Steps=200
+Episode 41: Total=110.6307, Mean=0.5532, Steps=200
+Episode 41: Total=114.1809, Mean=0.5709, Steps=200
+Episode 41: Total=115.1967, Mean=0.5760, Steps=200
+Episode 42: Total=113.5909, Mean=0.5680, Steps=200
+Episode 42: Total=111.3808, Mean=0.5569, Steps=200
+Episode 42: Total=112.4233, Mean=0.5621, Steps=200
+Episode 42: Total=112.8212, Mean=0.5641, Steps=200
+------------------------------
+| time/              |       |
+|    fps             | 16    |
+|    iterations      | 1     |
+|    time_elapsed    | 1993  |
+|    total_timesteps | 32768 |
+------------------------------
+Episode 43: Total=110.5911, Mean=0.5530, Steps=200
+Episode 43: Total=111.5064, Mean=0.5575, Steps=200
+Episode 43: Total=112.8833, Mean=0.5644, Steps=200
+Episode 43: Total=109.9521, Mean=0.5498, Steps=200
+Episode 44: Total=110.6021, Mean=0.5530, Steps=200
+Episode 44: Total=106.2853, Mean=0.5314, Steps=200
+Episode 44: Total=111.6900, Mean=0.5584, Steps=200
+Episode 44: Total=108.5510, Mean=0.5428, Steps=200
+Episode 45: Total=113.3876, Mean=0.5669, Steps=200
+Episode 45: Total=109.6291, Mean=0.5481, Steps=200
+Episode 45: Total=112.9500, Mean=0.5648, Steps=200
+Episode 45: Total=110.7308, Mean=0.5537, Steps=200
+Episode 46: Total=111.0865, Mean=0.5554, Steps=200
+Episode 46: Total=111.7259, Mean=0.5586, Steps=200
+Episode 46: Total=113.2946, Mean=0.5665, Steps=200
+Episode 46: Total=110.1817, Mean=0.5509, Steps=200
+Episode 47: Total=110.7725, Mean=0.5539, Steps=200
+Episode 47: Total=108.5649, Mean=0.5428, Steps=200
+Episode 47: Total=110.4589, Mean=0.5523, Steps=200
+Episode 47: Total=109.5197, Mean=0.5476, Steps=200
+Episode 48: Total=113.8097, Mean=0.5690, Steps=200
+Episode 48: Total=116.0841, Mean=0.5804, Steps=200
+Episode 48: Total=112.7277, Mean=0.5636, Steps=200
+Episode 48: Total=108.6444, Mean=0.5432, Steps=200
+Episode 49: Total=110.5774, Mean=0.5529, Steps=200
+Episode 49: Total=113.0403, Mean=0.5652, Steps=200
+Episode 49: Total=109.4646, Mean=0.5473, Steps=200
+Episode 49: Total=110.5530, Mean=0.5528, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 50):
+   Mean Reward (last 50): 0.5472
+   Std Reward: 0.5033
+   Best Reward: 1.4024
+   Reward Improvement: -0.6011
+   State Stability: 0.2912
+Episode 50: Total=109.4452, Mean=0.5472, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 50):
+   Mean Reward (last 50): 0.5533
+   Std Reward: 0.5062
+   Best Reward: 1.4739
+   Reward Improvement: 0.4775
+   State Stability: 0.2910
+Episode 50: Total=110.6670, Mean=0.5533, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 50):
+   Mean Reward (last 50): 0.5580
+   Std Reward: 0.5012
+   Best Reward: 1.4783
+   Reward Improvement: 0.4032
+   State Stability: 0.2867
+Episode 50: Total=111.5984, Mean=0.5580, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 50):
+   Mean Reward (last 50): 0.5478
+   Std Reward: 0.5052
+   Best Reward: 1.4784
+   Reward Improvement: 0.7049
+   State Stability: 0.2867
+Episode 50: Total=109.5634, Mean=0.5478, Steps=200
+Episode 51: Total=110.2588, Mean=0.5513, Steps=200
+Episode 51: Total=106.9576, Mean=0.5348, Steps=200
+Episode 51: Total=110.6982, Mean=0.5535, Steps=200
+Episode 51: Total=110.6180, Mean=0.5531, Steps=200
+Episode 52: Total=111.0248, Mean=0.5551, Steps=200
+Episode 52: Total=112.4937, Mean=0.5625, Steps=200
+Episode 52: Total=112.5311, Mean=0.5627, Steps=200
+Episode 52: Total=108.1438, Mean=0.5407, Steps=200
+Episode 53: Total=107.7986, Mean=0.5390, Steps=200
+Episode 53: Total=111.8934, Mean=0.5595, Steps=200
+Episode 53: Total=111.2032, Mean=0.5560, Steps=200
+Episode 53: Total=113.2950, Mean=0.5665, Steps=200
+Episode 54: Total=107.0748, Mean=0.5354, Steps=200
+Episode 54: Total=114.4770, Mean=0.5724, Steps=200
+Episode 54: Total=112.6481, Mean=0.5632, Steps=200
+Episode 54: Total=110.1274, Mean=0.5506, Steps=200
+Episode 55: Total=111.0103, Mean=0.5551, Steps=200
+Episode 55: Total=109.9675, Mean=0.5498, Steps=200
+Episode 55: Total=112.4981, Mean=0.5625, Steps=200
+Episode 55: Total=110.7443, Mean=0.5537, Steps=200
+Episode 56: Total=116.1440, Mean=0.5807, Steps=200
+Episode 56: Total=115.2788, Mean=0.5764, Steps=200
+Episode 56: Total=112.3635, Mean=0.5618, Steps=200
+Episode 56: Total=114.0376, Mean=0.5702, Steps=200
+Episode 57: Total=111.0880, Mean=0.5554, Steps=200
+Episode 57: Total=108.3863, Mean=0.5419, Steps=200
+Episode 57: Total=111.5339, Mean=0.5577, Steps=200
+Episode 57: Total=112.3207, Mean=0.5616, Steps=200
+Episode 58: Total=111.2692, Mean=0.5563, Steps=200
+Episode 58: Total=110.7370, Mean=0.5537, Steps=200
+Episode 58: Total=110.4024, Mean=0.5520, Steps=200
+Episode 58: Total=109.4421, Mean=0.5472, Steps=200
+Episode 59: Total=112.0325, Mean=0.5602, Steps=200
+Episode 59: Total=111.8929, Mean=0.5595, Steps=200
+Episode 59: Total=109.9860, Mean=0.5499, Steps=200
+Episode 59: Total=112.3307, Mean=0.5617, Steps=200
+Episode 60: Total=110.1966, Mean=0.5510, Steps=200
+Episode 60: Total=115.9481, Mean=0.5797, Steps=200
+Episode 60: Total=112.4515, Mean=0.5623, Steps=200
+Episode 60: Total=111.9397, Mean=0.5597, Steps=200
+Episode 61: Total=112.0437, Mean=0.5602, Steps=200
+Episode 61: Total=109.4216, Mean=0.5471, Steps=200
+Episode 61: Total=114.3690, Mean=0.5718, Steps=200
+Episode 61: Total=112.3021, Mean=0.5615, Steps=200
+Episode 62: Total=110.9222, Mean=0.5546, Steps=200
+Episode 62: Total=113.8721, Mean=0.5694, Steps=200
+Episode 62: Total=111.6520, Mean=0.5583, Steps=200
+Episode 62: Total=112.1268, Mean=0.5606, Steps=200
+Episode 63: Total=110.2610, Mean=0.5513, Steps=200
+Episode 63: Total=109.4147, Mean=0.5471, Steps=200
+Episode 63: Total=110.4798, Mean=0.5524, Steps=200
+Episode 63: Total=110.4657, Mean=0.5523, Steps=200
+Episode 64: Total=112.0721, Mean=0.5604, Steps=200
+Episode 64: Total=112.6065, Mean=0.5630, Steps=200
+Episode 64: Total=112.3122, Mean=0.5616, Steps=200
+Episode 64: Total=112.8213, Mean=0.5641, Steps=200
+Episode 65: Total=110.9249, Mean=0.5546, Steps=200
+Episode 65: Total=113.9885, Mean=0.5699, Steps=200
+Episode 65: Total=107.1776, Mean=0.5359, Steps=200
+Episode 65: Total=110.3964, Mean=0.5520, Steps=200
+Episode 66: Total=111.1386, Mean=0.5557, Steps=200
+Episode 66: Total=113.0047, Mean=0.5650, Steps=200
+Episode 66: Total=110.5628, Mean=0.5528, Steps=200
+Episode 66: Total=110.9042, Mean=0.5545, Steps=200
+Episode 67: Total=112.7613, Mean=0.5638, Steps=200
+Episode 67: Total=110.2947, Mean=0.5515, Steps=200
+Episode 67: Total=108.8994, Mean=0.5445, Steps=200
+Episode 67: Total=113.9031, Mean=0.5695, Steps=200
+Episode 68: Total=110.9444, Mean=0.5547, Steps=200
+Episode 68: Total=113.1628, Mean=0.5658, Steps=200
+Episode 68: Total=112.3390, Mean=0.5617, Steps=200
+Episode 68: Total=110.2416, Mean=0.5512, Steps=200
+Episode 69: Total=113.7875, Mean=0.5689, Steps=200
+Episode 69: Total=110.2142, Mean=0.5511, Steps=200
+Episode 69: Total=109.8442, Mean=0.5492, Steps=200
+Episode 69: Total=105.6081, Mean=0.5280, Steps=200
+Episode 70: Total=112.0600, Mean=0.5603, Steps=200
+Episode 70: Total=113.7103, Mean=0.5686, Steps=200
+Episode 70: Total=112.5221, Mean=0.5626, Steps=200
+Episode 70: Total=109.4496, Mean=0.5472, Steps=200
+Episode 71: Total=107.5075, Mean=0.5375, Steps=200
+Episode 71: Total=109.3950, Mean=0.5470, Steps=200
+Episode 71: Total=113.6614, Mean=0.5683, Steps=200
+Episode 71: Total=110.1969, Mean=0.5510, Steps=200
+Episode 72: Total=110.2598, Mean=0.5513, Steps=200
+Episode 72: Total=112.9806, Mean=0.5649, Steps=200
+Episode 72: Total=105.9800, Mean=0.5299, Steps=200
+Episode 72: Total=114.6640, Mean=0.5733, Steps=200
+Episode 73: Total=110.7765, Mean=0.5539, Steps=200
+Episode 73: Total=115.9608, Mean=0.5798, Steps=200
+Episode 73: Total=111.3500, Mean=0.5567, Steps=200
+Episode 73: Total=111.3766, Mean=0.5569, Steps=200
+Episode 74: Total=106.6612, Mean=0.5333, Steps=200
+Episode 74: Total=108.5260, Mean=0.5426, Steps=200
+Episode 74: Total=110.7423, Mean=0.5537, Steps=200
+Episode 74: Total=113.0144, Mean=0.5651, Steps=200
+Episode 75: Total=113.6102, Mean=0.5681, Steps=200
+Episode 75: Total=111.5152, Mean=0.5576, Steps=200
+Episode 75: Total=110.7989, Mean=0.5540, Steps=200
+Episode 75: Total=110.5135, Mean=0.5526, Steps=200
+Episode 76: Total=111.8955, Mean=0.5595, Steps=200
+Episode 76: Total=112.1107, Mean=0.5606, Steps=200
+Episode 76: Total=108.6350, Mean=0.5432, Steps=200
+Episode 76: Total=113.1750, Mean=0.5659, Steps=200
+Episode 77: Total=110.7662, Mean=0.5538, Steps=200
+Episode 77: Total=111.1846, Mean=0.5559, Steps=200
+Episode 77: Total=111.1790, Mean=0.5559, Steps=200
+Episode 77: Total=111.7325, Mean=0.5587, Steps=200
+Episode 78: Total=113.2971, Mean=0.5665, Steps=200
+Episode 78: Total=111.9680, Mean=0.5598, Steps=200
+Episode 78: Total=111.8204, Mean=0.5591, Steps=200
+Episode 78: Total=111.5794, Mean=0.5579, Steps=200
+Episode 79: Total=112.0759, Mean=0.5604, Steps=200
+Episode 79: Total=111.0929, Mean=0.5555, Steps=200
+Episode 79: Total=111.2981, Mean=0.5565, Steps=200
+Episode 79: Total=114.4277, Mean=0.5721, Steps=200
+Episode 80: Total=108.0342, Mean=0.5402, Steps=200
+Episode 80: Total=114.1190, Mean=0.5706, Steps=200
+Episode 80: Total=115.1955, Mean=0.5760, Steps=200
+Episode 80: Total=108.5630, Mean=0.5428, Steps=200
+Episode 81: Total=113.6031, Mean=0.5680, Steps=200
+Episode 81: Total=111.8469, Mean=0.5592, Steps=200
+Episode 81: Total=112.3712, Mean=0.5619, Steps=200
+Episode 81: Total=114.1639, Mean=0.5708, Steps=200
+Episode 82: Total=112.0922, Mean=0.5605, Steps=200
+Episode 82: Total=110.8503, Mean=0.5543, Steps=200
+Episode 82: Total=110.1461, Mean=0.5507, Steps=200
+Episode 82: Total=111.0831, Mean=0.5554, Steps=200
+Episode 83: Total=111.3791, Mean=0.5569, Steps=200
+Episode 83: Total=111.2933, Mean=0.5565, Steps=200
+Episode 83: Total=110.2372, Mean=0.5512, Steps=200
+Episode 83: Total=110.9888, Mean=0.5549, Steps=200
+-----------------------------------------
+| time/                   |             |
+|    fps                  | 15          |
+|    iterations           | 2           |
+|    time_elapsed         | 4193        |
+|    total_timesteps      | 65536       |
+| train/                  |             |
+|    approx_kl            | 0.025454463 |
+|    clip_fraction        | 0.132       |
+|    clip_range           | 0.25        |
+|    entropy_loss         | -9.97       |
+|    explained_variance   | -0.00182    |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.0384      |
+|    n_updates            | 30          |
+|    policy_gradient_loss | -0.0317     |
+|    std                  | 1.01        |
+|    value_loss           | 5.16        |
+-----------------------------------------
+Episode 84: Total=109.1391, Mean=0.5457, Steps=200
+Episode 84: Total=111.0140, Mean=0.5551, Steps=200
+Episode 84: Total=111.0484, Mean=0.5552, Steps=200
+Episode 84: Total=113.1739, Mean=0.5659, Steps=200
+Episode 85: Total=110.4142, Mean=0.5521, Steps=200
+Episode 85: Total=111.5162, Mean=0.5576, Steps=200
+Episode 85: Total=111.2916, Mean=0.5565, Steps=200
+Episode 85: Total=108.1009, Mean=0.5405, Steps=200
+Episode 86: Total=111.4373, Mean=0.5572, Steps=200
+Episode 86: Total=111.5503, Mean=0.5578, Steps=200
+Episode 86: Total=113.6417, Mean=0.5682, Steps=200
+Episode 86: Total=111.4205, Mean=0.5571, Steps=200
+Episode 87: Total=113.2086, Mean=0.5660, Steps=200
+Episode 87: Total=108.4966, Mean=0.5425, Steps=200
+Episode 87: Total=110.9817, Mean=0.5549, Steps=200
+Episode 87: Total=109.7410, Mean=0.5487, Steps=200
+Episode 88: Total=110.6213, Mean=0.5531, Steps=200
+Episode 88: Total=112.7722, Mean=0.5639, Steps=200
+Episode 88: Total=111.5764, Mean=0.5579, Steps=200
+Episode 88: Total=110.9832, Mean=0.5549, Steps=200
+Episode 89: Total=111.7881, Mean=0.5589, Steps=200
+Episode 89: Total=107.1228, Mean=0.5356, Steps=200
+Episode 89: Total=111.3645, Mean=0.5568, Steps=200
+Episode 89: Total=113.8793, Mean=0.5694, Steps=200
+Episode 90: Total=112.1870, Mean=0.5609, Steps=200
+Episode 90: Total=111.2461, Mean=0.5562, Steps=200
+Episode 90: Total=114.1530, Mean=0.5708, Steps=200
+Episode 90: Total=111.3438, Mean=0.5567, Steps=200
+Episode 91: Total=112.2605, Mean=0.5613, Steps=200
+Episode 91: Total=110.4164, Mean=0.5521, Steps=200
+Episode 91: Total=114.1684, Mean=0.5708, Steps=200
+Episode 91: Total=112.5361, Mean=0.5627, Steps=200
+Episode 92: Total=112.7220, Mean=0.5636, Steps=200
+Episode 92: Total=111.3244, Mean=0.5566, Steps=200
+Episode 92: Total=112.6794, Mean=0.5634, Steps=200
+Episode 92: Total=110.0269, Mean=0.5501, Steps=200
+Episode 93: Total=111.5655, Mean=0.5578, Steps=200
+Episode 93: Total=114.9502, Mean=0.5748, Steps=200
+Episode 93: Total=110.2913, Mean=0.5515, Steps=200
+Episode 93: Total=109.8727, Mean=0.5494, Steps=200
+Episode 94: Total=113.6369, Mean=0.5682, Steps=200
+Episode 94: Total=111.7190, Mean=0.5586, Steps=200
+Episode 94: Total=112.1821, Mean=0.5609, Steps=200
+Episode 94: Total=113.0710, Mean=0.5654, Steps=200
+Episode 95: Total=116.0244, Mean=0.5801, Steps=200
+Episode 95: Total=114.0591, Mean=0.5703, Steps=200
+Episode 95: Total=111.6191, Mean=0.5581, Steps=200
+Episode 95: Total=112.6226, Mean=0.5631, Steps=200
+Episode 96: Total=112.8569, Mean=0.5643, Steps=200
+Episode 96: Total=113.0720, Mean=0.5654, Steps=200
+Episode 96: Total=112.5557, Mean=0.5628, Steps=200
+Episode 96: Total=112.1906, Mean=0.5610, Steps=200
+Episode 97: Total=111.4955, Mean=0.5575, Steps=200
+Episode 97: Total=109.6534, Mean=0.5483, Steps=200
+Episode 97: Total=111.3989, Mean=0.5570, Steps=200
+Episode 97: Total=112.6013, Mean=0.5630, Steps=200
+Episode 98: Total=110.3237, Mean=0.5516, Steps=200
+Episode 98: Total=108.6295, Mean=0.5431, Steps=200
+Episode 98: Total=113.0809, Mean=0.5654, Steps=200
+Episode 98: Total=111.0500, Mean=0.5552, Steps=200
+Episode 99: Total=111.5722, Mean=0.5579, Steps=200
+Episode 99: Total=112.3195, Mean=0.5616, Steps=200
+Episode 99: Total=111.0872, Mean=0.5554, Steps=200
+Episode 99: Total=109.8580, Mean=0.5493, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 100):
+   Mean Reward (last 50): 0.5489
+   Std Reward: 0.4997
+   Best Reward: 1.2241
+   Reward Improvement: 0.4991
+   State Stability: 0.3074
+Episode 100: Total=109.7741, Mean=0.5489, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 100):
+   Mean Reward (last 50): 0.5555
+   Std Reward: 0.4984
+   Best Reward: 1.4197
+   Reward Improvement: -0.4573
+   State Stability: 0.2903
+Episode 100: Total=111.0916, Mean=0.5555, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 100):
+   Mean Reward (last 50): 0.5448
+   Std Reward: 0.5006
+   Best Reward: 1.1294
+   Reward Improvement: -0.6040
+   State Stability: 0.2964
+Episode 100: Total=108.9581, Mean=0.5448, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 100):
+   Mean Reward (last 50): 0.5644
+   Std Reward: 0.5067
+   Best Reward: 1.5069
+   Reward Improvement: 0.9048
+   State Stability: 0.2972
+Episode 100: Total=112.8739, Mean=0.5644, Steps=200
+Episode 101: Total=110.1902, Mean=0.5510, Steps=200
+Episode 101: Total=108.2617, Mean=0.5413, Steps=200
+Episode 101: Total=116.5834, Mean=0.5829, Steps=200
+Episode 101: Total=111.2039, Mean=0.5560, Steps=200
+Episode 102: Total=113.1012, Mean=0.5655, Steps=200
+Episode 102: Total=111.9979, Mean=0.5600, Steps=200
+Episode 102: Total=111.9098, Mean=0.5595, Steps=200
+Episode 102: Total=110.6960, Mean=0.5535, Steps=200
+Episode 103: Total=111.1577, Mean=0.5558, Steps=200
+Episode 103: Total=111.6791, Mean=0.5584, Steps=200
+Episode 103: Total=112.2285, Mean=0.5611, Steps=200
+Episode 103: Total=111.1693, Mean=0.5558, Steps=200
+Episode 104: Total=111.4593, Mean=0.5573, Steps=200
+Episode 104: Total=112.9082, Mean=0.5645, Steps=200
+Episode 104: Total=114.7000, Mean=0.5735, Steps=200
+Episode 104: Total=108.2066, Mean=0.5410, Steps=200
+Episode 105: Total=113.1511, Mean=0.5658, Steps=200
+Episode 105: Total=112.5427, Mean=0.5627, Steps=200
+Episode 105: Total=109.2364, Mean=0.5462, Steps=200
+Episode 105: Total=112.2185, Mean=0.5611, Steps=200
+Episode 106: Total=110.8851, Mean=0.5544, Steps=200
+Episode 106: Total=112.6992, Mean=0.5635, Steps=200
+Episode 106: Total=111.3766, Mean=0.5569, Steps=200
+Episode 106: Total=112.7376, Mean=0.5637, Steps=200
+Episode 107: Total=113.5724, Mean=0.5679, Steps=200
+Episode 107: Total=111.7312, Mean=0.5587, Steps=200
+Episode 107: Total=113.8791, Mean=0.5694, Steps=200
+Episode 107: Total=111.5304, Mean=0.5577, Steps=200
+Episode 108: Total=110.5693, Mean=0.5528, Steps=200
+Episode 108: Total=113.0350, Mean=0.5652, Steps=200
+Episode 108: Total=109.3075, Mean=0.5465, Steps=200
+Episode 108: Total=112.1911, Mean=0.5610, Steps=200
+Episode 109: Total=114.7163, Mean=0.5736, Steps=200
+Episode 109: Total=113.3386, Mean=0.5667, Steps=200
+Episode 109: Total=110.3130, Mean=0.5516, Steps=200
+Episode 109: Total=112.7166, Mean=0.5636, Steps=200
+Episode 110: Total=113.7958, Mean=0.5690, Steps=200
+Episode 110: Total=111.7662, Mean=0.5588, Steps=200
+Episode 110: Total=111.7092, Mean=0.5585, Steps=200
+Episode 110: Total=111.4617, Mean=0.5573, Steps=200
+Episode 111: Total=112.9718, Mean=0.5649, Steps=200
+Episode 111: Total=110.3762, Mean=0.5519, Steps=200
+Episode 111: Total=112.0170, Mean=0.5601, Steps=200
+Episode 111: Total=110.5930, Mean=0.5530, Steps=200
+Episode 112: Total=111.4003, Mean=0.5570, Steps=200
+Episode 112: Total=112.4391, Mean=0.5622, Steps=200
+Episode 112: Total=112.2013, Mean=0.5610, Steps=200
+Episode 112: Total=109.3092, Mean=0.5465, Steps=200
+Episode 113: Total=111.9818, Mean=0.5599, Steps=200
+Episode 113: Total=109.1797, Mean=0.5459, Steps=200
+Episode 113: Total=113.4407, Mean=0.5672, Steps=200
+Episode 113: Total=112.1544, Mean=0.5608, Steps=200
+Episode 114: Total=111.9157, Mean=0.5596, Steps=200
+Episode 114: Total=111.1878, Mean=0.5559, Steps=200
+Episode 114: Total=108.8663, Mean=0.5443, Steps=200
+Episode 114: Total=111.4261, Mean=0.5571, Steps=200
+Episode 115: Total=108.1518, Mean=0.5408, Steps=200
+Episode 115: Total=112.0971, Mean=0.5605, Steps=200
+Episode 115: Total=107.5676, Mean=0.5378, Steps=200
+Episode 115: Total=111.9609, Mean=0.5598, Steps=200
+Episode 116: Total=112.8810, Mean=0.5644, Steps=200
+Episode 116: Total=115.6131, Mean=0.5781, Steps=200
+Episode 116: Total=112.4667, Mean=0.5623, Steps=200
+Episode 116: Total=112.6158, Mean=0.5631, Steps=200
+Episode 117: Total=108.1368, Mean=0.5407, Steps=200
+Episode 117: Total=115.0443, Mean=0.5752, Steps=200
+Episode 117: Total=110.4224, Mean=0.5521, Steps=200
+Episode 117: Total=112.6847, Mean=0.5634, Steps=200
+Episode 118: Total=111.8356, Mean=0.5592, Steps=200
+Episode 118: Total=111.3765, Mean=0.5569, Steps=200
+Episode 118: Total=112.6922, Mean=0.5635, Steps=200
+Episode 118: Total=112.1977, Mean=0.5610, Steps=200
+Episode 119: Total=109.2958, Mean=0.5465, Steps=200
+Episode 119: Total=112.4806, Mean=0.5624, Steps=200
+Episode 119: Total=112.7966, Mean=0.5640, Steps=200
+Episode 119: Total=109.3306, Mean=0.5467, Steps=200
+Episode 120: Total=108.5699, Mean=0.5428, Steps=200
+Episode 120: Total=110.5309, Mean=0.5527, Steps=200
+Episode 120: Total=112.1591, Mean=0.5608, Steps=200
+Episode 120: Total=116.1796, Mean=0.5809, Steps=200
+Episode 121: Total=110.0054, Mean=0.5500, Steps=200
+Episode 121: Total=112.3083, Mean=0.5615, Steps=200
+Episode 121: Total=111.2393, Mean=0.5562, Steps=200
+Episode 121: Total=112.2698, Mean=0.5613, Steps=200
+Episode 122: Total=112.0731, Mean=0.5604, Steps=200
+Episode 122: Total=114.4397, Mean=0.5722, Steps=200
+Episode 122: Total=105.9617, Mean=0.5298, Steps=200
+Episode 122: Total=109.1270, Mean=0.5456, Steps=200
+Episode 123: Total=112.2452, Mean=0.5612, Steps=200
+Episode 123: Total=108.9698, Mean=0.5448, Steps=200
+Episode 123: Total=111.0583, Mean=0.5553, Steps=200
+Episode 123: Total=114.5411, Mean=0.5727, Steps=200
+Episode 124: Total=108.6085, Mean=0.5430, Steps=200
+Episode 124: Total=112.1722, Mean=0.5609, Steps=200
+Episode 124: Total=115.0294, Mean=0.5751, Steps=200
+Episode 124: Total=109.1923, Mean=0.5460, Steps=200
+-----------------------------------------
+| time/                   |             |
+|    fps                  | 15          |
+|    iterations           | 3           |
+|    time_elapsed         | 6252        |
+|    total_timesteps      | 98304       |
+| train/                  |             |
+|    approx_kl            | 0.023350524 |
+|    clip_fraction        | 0.142       |
+|    clip_range           | 0.25        |
+|    entropy_loss         | -9.99       |
+|    explained_variance   | 0.713       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.185       |
+|    n_updates            | 60          |
+|    policy_gradient_loss | -0.0492     |
+|    std                  | 1.01        |
+|    value_loss           | 1.29        |
+-----------------------------------------
+Episode 125: Total=110.5301, Mean=0.5527, Steps=200
+Episode 125: Total=110.0061, Mean=0.5500, Steps=200
+Episode 125: Total=112.4725, Mean=0.5624, Steps=200
+Episode 125: Total=110.9410, Mean=0.5547, Steps=200
+Episode 126: Total=109.9150, Mean=0.5496, Steps=200
+Episode 126: Total=113.3699, Mean=0.5668, Steps=200
+Episode 126: Total=111.0505, Mean=0.5553, Steps=200
+Episode 126: Total=112.8775, Mean=0.5644, Steps=200
+Episode 127: Total=111.0708, Mean=0.5554, Steps=200
+Episode 127: Total=107.8984, Mean=0.5395, Steps=200
+Episode 127: Total=110.4336, Mean=0.5522, Steps=200
+Episode 127: Total=112.9723, Mean=0.5649, Steps=200
+Episode 128: Total=114.1408, Mean=0.5707, Steps=200
+Episode 128: Total=112.9774, Mean=0.5649, Steps=200
+Episode 128: Total=113.9079, Mean=0.5695, Steps=200
+Episode 128: Total=110.0266, Mean=0.5501, Steps=200
+Episode 129: Total=111.2250, Mean=0.5561, Steps=200
+Episode 129: Total=112.7471, Mean=0.5637, Steps=200
+Episode 129: Total=113.7642, Mean=0.5688, Steps=200
+Episode 129: Total=110.7400, Mean=0.5537, Steps=200
+Episode 130: Total=112.5975, Mean=0.5630, Steps=200
+Episode 130: Total=113.1652, Mean=0.5658, Steps=200
+Episode 130: Total=109.7513, Mean=0.5488, Steps=200
+Episode 130: Total=108.7455, Mean=0.5437, Steps=200
+Episode 131: Total=108.7984, Mean=0.5440, Steps=200
+Episode 131: Total=110.0628, Mean=0.5503, Steps=200
+Episode 131: Total=111.2896, Mean=0.5564, Steps=200
+Episode 131: Total=112.6496, Mean=0.5632, Steps=200
+Episode 132: Total=112.5026, Mean=0.5625, Steps=200
+Episode 132: Total=115.0202, Mean=0.5751, Steps=200
+Episode 132: Total=112.0629, Mean=0.5603, Steps=200
+Episode 132: Total=106.4587, Mean=0.5323, Steps=200
+Episode 133: Total=110.0398, Mean=0.5502, Steps=200
+Episode 133: Total=116.6778, Mean=0.5834, Steps=200
+Episode 133: Total=108.6646, Mean=0.5433, Steps=200
+Episode 133: Total=110.2806, Mean=0.5514, Steps=200
+Episode 134: Total=112.8618, Mean=0.5643, Steps=200
+Episode 134: Total=108.7427, Mean=0.5437, Steps=200
+Episode 134: Total=113.7713, Mean=0.5689, Steps=200
+Episode 134: Total=113.8044, Mean=0.5690, Steps=200
+Episode 135: Total=112.1925, Mean=0.5610, Steps=200
+Episode 135: Total=110.9654, Mean=0.5548, Steps=200
+Episode 135: Total=112.0207, Mean=0.5601, Steps=200
+Episode 135: Total=110.6503, Mean=0.5533, Steps=200
+Episode 136: Total=112.8223, Mean=0.5641, Steps=200
+Episode 136: Total=111.2650, Mean=0.5563, Steps=200
+Episode 136: Total=108.6793, Mean=0.5434, Steps=200
+Episode 136: Total=111.4491, Mean=0.5572, Steps=200
+Episode 137: Total=115.3274, Mean=0.5766, Steps=200
+Episode 137: Total=111.3682, Mean=0.5568, Steps=200
+Episode 137: Total=113.4927, Mean=0.5675, Steps=200
+Episode 137: Total=112.0809, Mean=0.5604, Steps=200
+Episode 138: Total=111.9137, Mean=0.5596, Steps=200
+Episode 138: Total=111.0923, Mean=0.5555, Steps=200
+Episode 138: Total=113.4642, Mean=0.5673, Steps=200
+Episode 138: Total=104.3469, Mean=0.5217, Steps=200
+Episode 139: Total=111.5798, Mean=0.5579, Steps=200
+Episode 139: Total=110.8429, Mean=0.5542, Steps=200
+Episode 139: Total=110.6529, Mean=0.5533, Steps=200
+Episode 139: Total=108.3662, Mean=0.5418, Steps=200
+Episode 140: Total=111.8454, Mean=0.5592, Steps=200
+Episode 140: Total=114.2526, Mean=0.5713, Steps=200
+Episode 140: Total=109.4569, Mean=0.5473, Steps=200
+Episode 140: Total=112.7469, Mean=0.5637, Steps=200
+Episode 141: Total=110.3775, Mean=0.5519, Steps=200
+Episode 141: Total=112.1189, Mean=0.5606, Steps=200
+Episode 141: Total=113.0508, Mean=0.5653, Steps=200
+Episode 141: Total=112.7968, Mean=0.5640, Steps=200
+Episode 142: Total=110.7290, Mean=0.5536, Steps=200
+Episode 142: Total=111.7283, Mean=0.5586, Steps=200
+Episode 142: Total=113.5855, Mean=0.5679, Steps=200
+Episode 142: Total=109.4408, Mean=0.5472, Steps=200
+Episode 143: Total=112.4765, Mean=0.5624, Steps=200
+Episode 143: Total=110.7962, Mean=0.5540, Steps=200
+Episode 143: Total=111.5916, Mean=0.5580, Steps=200
+Episode 143: Total=108.5986, Mean=0.5430, Steps=200
+Episode 144: Total=111.7424, Mean=0.5587, Steps=200
+Episode 144: Total=109.2260, Mean=0.5461, Steps=200
+Episode 144: Total=112.6445, Mean=0.5632, Steps=200
+Episode 144: Total=110.5701, Mean=0.5529, Steps=200
+Episode 145: Total=114.7199, Mean=0.5736, Steps=200
+Episode 145: Total=110.2769, Mean=0.5514, Steps=200
+Episode 145: Total=110.1471, Mean=0.5507, Steps=200
+Episode 145: Total=110.4804, Mean=0.5524, Steps=200
+Episode 146: Total=113.2102, Mean=0.5661, Steps=200
+Episode 146: Total=111.2956, Mean=0.5565, Steps=200
+Episode 146: Total=113.8078, Mean=0.5690, Steps=200
+Episode 146: Total=112.3423, Mean=0.5617, Steps=200
+Episode 147: Total=112.0168, Mean=0.5601, Steps=200
+Episode 147: Total=112.2658, Mean=0.5613, Steps=200
+Episode 147: Total=112.3235, Mean=0.5616, Steps=200
+Episode 147: Total=113.6414, Mean=0.5682, Steps=200
+Episode 148: Total=109.9230, Mean=0.5496, Steps=200
+Episode 148: Total=111.4034, Mean=0.5570, Steps=200
+Episode 148: Total=109.5563, Mean=0.5478, Steps=200
+Episode 148: Total=110.5673, Mean=0.5528, Steps=200
+Episode 149: Total=111.4219, Mean=0.5571, Steps=200
+Episode 149: Total=110.9506, Mean=0.5548, Steps=200
+Episode 149: Total=111.5060, Mean=0.5575, Steps=200
+Episode 149: Total=107.6962, Mean=0.5385, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 150):
+   Mean Reward (last 50): 0.5559
+   Std Reward: 0.5004
+   Best Reward: 1.4733
+   Reward Improvement: -0.4928
+   State Stability: 0.2862
+Episode 150: Total=111.1737, Mean=0.5559, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 150):
+   Mean Reward (last 50): 0.5647
+   Std Reward: 0.5043
+   Best Reward: 1.4737
+   Reward Improvement: 0.4398
+   State Stability: 0.2878
+Episode 150: Total=112.9311, Mean=0.5647, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 150):
+   Mean Reward (last 50): 0.5600
+   Std Reward: 0.4968
+   Best Reward: 1.4671
+   Reward Improvement: 0.4026
+   State Stability: 0.2995
+Episode 150: Total=112.0048, Mean=0.5600, Steps=200
+
+Ã°Å¸â€œÅ  CONVERGENCE DIAGNOSTICS (Episode 150):
+   Mean Reward (last 50): 0.5481
+   Std Reward: 0.5063
+   Best Reward: 1.4463
+   Reward Improvement: 0.4773
+   State Stability: 0.2911
+Episode 150: Total=109.6197, Mean=0.5481, Steps=200
+Episode 151: Total=111.6856, Mean=0.5584, Steps=200
+Episode 151: Total=110.5959, Mean=0.5530, Steps=200
+Episode 151: Total=107.4629, Mean=0.5373, Steps=200
+Episode 151: Total=114.3758, Mean=0.5719, Steps=200
+Episode 152: Total=111.2125, Mean=0.5561, Steps=200
+Episode 152: Total=110.9796, Mean=0.5549, Steps=200
+Episode 152: Total=113.0262, Mean=0.5651, Steps=200
+Episode 152: Total=111.3487, Mean=0.5567, Steps=200
+Episode 153: Total=110.3930, Mean=0.5520, Steps=200
+Episode 153: Total=116.0949, Mean=0.5805, Steps=200
+Episode 153: Total=112.9742, Mean=0.5649, Steps=200
+Episode 153: Total=110.6301, Mean=0.5532, Steps=200
+Episode 154: Total=114.9717, Mean=0.5749, Steps=200
+Episode 154: Total=112.5573, Mean=0.5628, Steps=200
+Episode 154: Total=110.8473, Mean=0.5542, Steps=200
+Episode 154: Total=112.9843, Mean=0.5649, Steps=200
+Episode 155: Total=112.6178, Mean=0.5631, Steps=200
+Episode 155: Total=110.6400, Mean=0.5532, Steps=200
+Episode 155: Total=113.0104, Mean=0.5651, Steps=200
+Episode 155: Total=111.9369, Mean=0.5597, Steps=200
+Episode 156: Total=111.3328, Mean=0.5567, Steps=200
+Episode 156: Total=110.1665, Mean=0.5508, Steps=200
+Episode 156: Total=112.1854, Mean=0.5609, Steps=200
+Episode 156: Total=111.3256, Mean=0.5566, Steps=200
+Episode 157: Total=113.8883, Mean=0.5694, Steps=200
+Episode 157: Total=109.8933, Mean=0.5495, Steps=200
+Episode 157: Total=112.3030, Mean=0.5615, Steps=200
+Episode 157: Total=109.6332, Mean=0.5482, Steps=200
+Episode 158: Total=111.7068, Mean=0.5585, Steps=200
+Episode 158: Total=111.4008, Mean=0.5570, Steps=200
+Episode 158: Total=109.7253, Mean=0.5486, Steps=200
+Episode 158: Total=113.0376, Mean=0.5652, Steps=200
+Episode 159: Total=113.1681, Mean=0.5658, Steps=200
+Episode 159: Total=113.6549, Mean=0.5683, Steps=200
+Episode 159: Total=112.8474, Mean=0.5642, Steps=200
+Episode 159: Total=111.2785, Mean=0.5564, Steps=200
+Episode 160: Total=110.1611, Mean=0.5508, Steps=200
+Episode 160: Total=110.4077, Mean=0.5520, Steps=200
+Episode 160: Total=111.5825, Mean=0.5579, Steps=200
+Episode 160: Total=115.4376, Mean=0.5772, Steps=200
+Episode 161: Total=112.4032, Mean=0.5620, Steps=200
+Episode 161: Total=109.1314, Mean=0.5457, Steps=200
+Episode 161: Total=112.5821, Mean=0.5629, Steps=200
+Episode 161: Total=110.3923, Mean=0.5520, Steps=200
+Episode 162: Total=109.5566, Mean=0.5478, Steps=200
+Episode 162: Total=111.6640, Mean=0.5583, Steps=200
+Episode 162: Total=111.3836, Mean=0.5569, Steps=200
+Episode 162: Total=109.2600, Mean=0.5463, Steps=200
+Episode 163: Total=114.2761, Mean=0.5714, Steps=200
+Episode 163: Total=111.4208, Mean=0.5571, Steps=200
+Episode 163: Total=111.0067, Mean=0.5550, Steps=200
+Episode 163: Total=109.7714, Mean=0.5489, Steps=200
+Episode 164: Total=110.1426, Mean=0.5507, Steps=200
+Episode 164: Total=110.1728, Mean=0.5509, Steps=200
+Episode 164: Total=112.6558, Mean=0.5633, Steps=200
+Episode 164: Total=112.9767, Mean=0.5649, Steps=200
+Episode 165: Total=113.6732, Mean=0.5684, Steps=200
+Episode 165: Total=110.4589, Mean=0.5523, Steps=200
+Episode 165: Total=113.2276, Mean=0.5661, Steps=200
+Episode 165: Total=108.8495, Mean=0.5442, Steps=200
+-----------------------------------------
+| time/                   |             |
+|    fps                  | 15          |
+|    iterations           | 4           |
+|    time_elapsed         | 8553        |
+|    total_timesteps      | 131072      |
+| train/                  |             |
+|    approx_kl            | 0.030625131 |
+|    clip_fraction        | 0.203       |
+|    clip_range           | 0.25        |
+|    entropy_loss         | -9.99       |
+|    explained_variance   | 0.914       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.251       |
+|    n_updates            | 90          |
+|    policy_gradient_loss | -0.0642     |
+|    std                  | 1.01        |
+|    value_loss           | 0.924       |
+-----------------------------------------
+Episode 166: Total=112.3721, Mean=0.5619, Steps=200
+Episode 166: Total=113.6283, Mean=0.5681, Steps=200
+Episode 166: Total=109.3047, Mean=0.5465, Steps=200
+Episode 166: Total=109.8389, Mean=0.5492, Steps=200
+Episode 167: Total=107.2856, Mean=0.5364, Steps=200
+Episode 167: Total=108.8513, Mean=0.5443, Steps=200
+Episode 167: Total=113.2681, Mean=0.5663, Steps=200
+Episode 167: Total=114.1058, Mean=0.5705, Steps=200
+Episode 168: Total=113.0748, Mean=0.5654, Steps=200
+Episode 168: Total=114.0738, Mean=0.5704, Steps=200
+Episode 168: Total=113.7343, Mean=0.5687, Steps=200
+Episode 168: Total=110.7360, Mean=0.5537, Steps=200
+Episode 169: Total=110.7221, Mean=0.5536, Steps=200
+Episode 169: Total=112.1622, Mean=0.5608, Steps=200
+Episode 169: Total=111.6811, Mean=0.5584, Steps=200
+Episode 169: Total=112.1020, Mean=0.5605, Steps=200
+Episode 170: Total=113.0124, Mean=0.5651, Steps=200
+Episode 170: Total=110.4079, Mean=0.5520, Steps=200
+Episode 170: Total=108.3161, Mean=0.5416, Steps=200
+Episode 170: Total=113.5264, Mean=0.5676, Steps=200
+Episode 171: Total=113.1613, Mean=0.5658, Steps=200
+Episode 171: Total=111.2281, Mean=0.5561, Steps=200
+Episode 171: Total=111.9594, Mean=0.5598, Steps=200
+Episode 171: Total=108.7868, Mean=0.5439, Steps=200
+Episode 172: Total=114.3323, Mean=0.5717, Steps=200
+Episode 172: Total=110.4662, Mean=0.5523, Steps=200
+Episode 172: Total=111.1726, Mean=0.5559, Steps=200
+Episode 172: Total=112.9260, Mean=0.5646, Steps=200
+Episode 173: Total=111.6097, Mean=0.5580, Steps=200
+Episode 173: Total=112.8964, Mean=0.5645, Steps=200
+Episode 173: Total=111.0944, Mean=0.5555, Steps=200
+Episode 173: Total=114.4255, Mean=0.5721, Steps=200
+Episode 174: Total=111.8657, Mean=0.5593, Steps=200
+Episode 174: Total=109.8484, Mean=0.5492, Steps=200
+Episode 174: Total=109.8652, Mean=0.5493, Steps=200
+Episode 174: Total=112.8853, Mean=0.5644, Steps=200
+Episode 175: Total=109.7138, Mean=0.5486, Steps=200
+Episode 175: Total=112.9645, Mean=0.5648, Steps=200
+Episode 175: Total=112.9733, Mean=0.5649, Steps=200
+Episode 175: Total=112.8963, Mean=0.5645, Steps=200
+Episode 176: Total=111.7644, Mean=0.5588, Steps=200
+Episode 176: Total=110.2822, Mean=0.5514, Steps=200
+Episode 176: Total=112.4333, Mean=0.5622, Steps=200
+Episode 176: Total=115.2162, Mean=0.5761, Steps=200
+Episode 177: Total=112.0540, Mean=0.5603, Steps=200
+Episode 177: Total=111.6789, Mean=0.5584, Steps=200
+Episode 177: Total=111.2940, Mean=0.5565, Steps=200
+Episode 177: Total=112.8056, Mean=0.5640, Steps=200
+Episode 178: Total=115.2204, Mean=0.5761, Steps=200
+Episode 178: Total=110.9447, Mean=0.5547, Steps=200
+Episode 178: Total=109.5136, Mean=0.5476, Steps=200
+Episode 178: Total=114.8803, Mean=0.5744, Steps=200
+Episode 179: Total=112.5318, Mean=0.5627, Steps=200
+Episode 179: Total=111.4248, Mean=0.5571, Steps=200
+Episode 179: Total=110.9426, Mean=0.5547, Steps=200
+Episode 179: Total=110.7287, Mean=0.5536, Steps=200
+Episode 180: Total=111.4131, Mean=0.5571, Steps=200
+Episode 180: Total=110.5098, Mean=0.5525, Steps=200
+Episode 180: Total=113.6634, Mean=0.5683, Steps=200
+Episode 180: Total=109.5454, Mean=0.5477, Steps=200
+Episode 181: Total=112.3329, Mean=0.5617, Steps=200
+Episode 181: Total=111.1583, Mean=0.5558, Steps=200
+Episode 181: Total=113.1877, Mean=0.5659, Steps=200
+Episode 181: Total=115.0283, Mean=0.5751, Steps=200
+Episode 182: Total=110.4336, Mean=0.5522, Steps=200
+Episode 182: Total=107.7595, Mean=0.5388, Steps=200
+Episode 182: Total=110.9398, Mean=0.5547, Steps=200
+Episode 182: Total=115.8724, Mean=0.5794, Steps=200
+Episode 183: Total=112.3998, Mean=0.5620, Steps=200
+Episode 183: Total=111.4157, Mean=0.5571, Steps=200
+Episode 183: Total=109.7893, Mean=0.5489, Steps=200
+Episode 183: Total=112.9951, Mean=0.5650, Steps=200
+Episode 184: Total=109.3298, Mean=0.5466, Steps=200
+Episode 184: Total=114.2409, Mean=0.5712, Steps=200
+Episode 184: Total=110.6753, Mean=0.5534, Steps=200
+Episode 184: Total=114.9173, Mean=0.5746, Steps=200
+Episode 185: Total=115.2779, Mean=0.5764, Steps=200
+Episode 185: Total=111.1871, Mean=0.5559, Steps=200
+Episode 185: Total=111.9074, Mean=0.5595, Steps=200
+Episode 185: Total=110.8049, Mean=0.5540, Steps=200
