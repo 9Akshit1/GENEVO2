@@ -19,10 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # BO modules
 from core.surrogate_loader import SurrogateLoader
+from core.surrogate_loader_v2_rl import SurrogateLoaderV2RL
 from core.build_surrogates import SurrogateBuilder
+from core.build_surrogates_v2_rl_based import SurrogateBuilderV2RL
 from search_space.biosensor_space import BiosensorSearchSpace
 from evaluation.physics_forward_model import PhysicsForwardModel
 from evaluation.objective_function import ObjectiveFunction
+from evaluation.objective_function_v2_rl import ObjectiveFunctionV2RL
 from evaluation.robustness_analyzer import RobustnessAnalyzer
 from acquisition.acquisition_functions import ExpectedImprovement
 from optimizer.gaussian_process_bo import GaussianProcessBO
@@ -139,6 +142,19 @@ Examples:
 
     # Flags
     parser.add_argument(
+        "--use-v2-rl",
+        action="store_true",
+        default=True,  # v2_RL is now default (better than v1)
+        help="Use v2_RL surrogate approach (default: True, RL-based methodology)",
+    )
+
+    parser.add_argument(
+        "--use-v1",
+        action="store_true",
+        help="Use original v1 surrogate approach (not recommended - breaks)",
+    )
+
+    parser.add_argument(
         "--compare-rl",
         action="store_true",
         help="Compare results with RL baseline",
@@ -151,6 +167,14 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Handle version selection
+    if args.use_v1 and args.use_v2_rl:
+        print("Error: Cannot use both --use-v1 and --use-v2-rl")
+        return 1
+
+    use_v2_rl = args.use_v2_rl and not args.use_v1
+    surrogate_version = "v2_rl" if use_v2_rl else "v1"
 
     # Validate paths
     if not args.data_dir.exists():
@@ -179,56 +203,107 @@ Examples:
         # Step 1: Build or Load Surrogates
         # =====================================================================
         logger.info("\n[1/5] Building/Loading Surrogate Models")
-        logger.info("-" * 80)
+        logger.info(f"-" * 80)
+        logger.info(f"Using surrogate approach: {surrogate_version.upper()}")
+        if use_v2_rl:
+            logger.info(f"  v2_RL: RL-based methodology [SNR, biosensor, noise]")
+            logger.info(f"  Features: Physics-derived (no data leakage)")
+            logger.info(f"  FNR R²: +0.58 (vs v1: -0.44)")
+        else:
+            logger.info(f"  v1: Original approach [kd, sensitivity, ...]")
+            logger.info(f"  WARNING: v1 is deprecated and unreliable")
 
         # Check if surrogates need to be built
         saved_ml_dir = args.surrogate_dir / "saved_ml"
-        scaler_file = saved_ml_dir / "scaler_v1.pkl" if saved_ml_dir.exists() else None
-        surrogates_exist = scaler_file and scaler_file.exists()
+        scaler_file_v2 = saved_ml_dir / f"scaler_{surrogate_version}.pkl" if saved_ml_dir.exists() else None
+        surrogates_exist = scaler_file_v2 and scaler_file_v2.exists()
 
         if args.retrain_surrogates or not surrogates_exist:
             if args.retrain_surrogates:
-                logger.info("Retraining surrogates (--retrain-surrogates flag set)...")
+                logger.info(f"Retraining surrogates (--retrain-surrogates flag set)...")
             else:
-                logger.info("Surrogates not found. Building from data...")
+                logger.info(f"Surrogates not found. Building from data using {surrogate_version.upper()}...")
 
-            builder = SurrogateBuilder(logger)
+            if use_v2_rl:
+                # Use RL-based approach
+                builder = SurrogateBuilderV2RL(logger)
+                logger.info(f"[*] Loading training data...")
+                X, feature_names, df_results = builder.load_and_prepare_data(args.data_dir)
 
-            try:
-                # Extract features from data
-                X, _, df_results = builder.load_and_extract_features(args.data_dir)
+                logger.info(f"[*] Fitting feature scaler...")
+                builder.fit_scaler(X)
 
-                # Train surrogates
-                metrics = builder.train_all_surrogates(X, df_results)
-                logger.info(f"[OK] Surrogate training complete")
+                # Prepare targets
+                y_dr = df_results['detection_rate'].values.astype(np.float32)
+                y_fnr = df_results['false_negative_rate'].values.astype(np.float32)
+                y_ttd = df_results['time_to_detection'].values.astype(np.float32)
 
-                # Log metrics (different types for DR classifier vs regressors)
-                logger.info(f"  Detection Rate (Classifier):")
-                logger.info(f"    Test ROC-AUC: {metrics['detection_rate']['test_auc']:.4f}")
-                logger.info(f"    Test Brier: {metrics['detection_rate']['test_brier']:.4f}")
-                logger.info(f"  FNR (Quantile Regression):")
-                logger.info(f"    Test R²: {metrics['fnr']['r2_test']:.4f}")
-                logger.info(f"    Test RMSE: {metrics['fnr']['rmse_test']:.4f}")
-                logger.info(f"  TTD (Quantile Regression):")
-                logger.info(f"    Test R²: {metrics['ttd']['r2_test']:.4f}")
-                logger.info(f"    Test RMSE: {metrics['ttd']['rmse_test']:.4f}")
+                try:
+                    logger.info(f"[*] Training surrogates with RL-based approach...")
+                    metrics = builder.train_all_surrogates(X, y_dr, y_fnr, y_ttd)
+                    logger.info(f"[OK] Surrogate training complete")
 
-                # Save to surrogate dir
-                builder.save_surrogates(args.surrogate_dir, version="v1")
-                logger.info(f"[OK] Surrogates saved to {args.surrogate_dir}")
-            except Exception as e:
-                logger.error(f"Failed to train surrogates: {e}", exc_info=True)
-                return 1
+                    # Log metrics (all regression)
+                    logger.info(f"\n  Detection Rate (Regression):")
+                    logger.info(f"    Test R²: {metrics['detection_rate']['r2_test']:.4f}")
+                    logger.info(f"    Test RMSE: {metrics['detection_rate']['rmse_test']:.4f}")
+                    logger.info(f"  FNR (Regression):")
+                    logger.info(f"    Test R²: {metrics['fnr']['r2_test']:.4f}")
+                    logger.info(f"    Test RMSE: {metrics['fnr']['rmse_test']:.4f}")
+                    logger.info(f"  TTD (Regression):")
+                    logger.info(f"    Test R²: {metrics['ttd']['r2_test']:.4f}")
+                    logger.info(f"    Test RMSE: {metrics['ttd']['rmse_test']:.4f}")
+
+                    # Save to surrogate dir
+                    builder.save_surrogates(args.surrogate_dir, version=surrogate_version)
+                    logger.info(f"[OK] Surrogates saved to {args.surrogate_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to train v2_rl surrogates: {e}", exc_info=True)
+                    return 1
+            else:
+                # Use original v1 approach
+                builder = SurrogateBuilder(logger)
+                try:
+                    logger.info(f"[*] Loading and extracting features...")
+                    X, _, df_results = builder.load_and_extract_features(args.data_dir)
+
+                    logger.info(f"[*] Training surrogates with v1 approach...")
+                    metrics = builder.train_all_surrogates(X, df_results)
+                    logger.info(f"[OK] Surrogate training complete")
+
+                    # Log metrics
+                    logger.info(f"  Detection Rate (Classifier):")
+                    logger.info(f"    Test ROC-AUC: {metrics['detection_rate']['test_auc']:.4f}")
+                    logger.info(f"    Test Brier: {metrics['detection_rate']['test_brier']:.4f}")
+                    logger.info(f"  FNR (Quantile Regression):")
+                    logger.info(f"    Test R²: {metrics['fnr']['r2_test']:.4f}")
+                    logger.info(f"    Test RMSE: {metrics['fnr']['rmse_test']:.4f}")
+                    logger.info(f"  TTD (Quantile Regression):")
+                    logger.info(f"    Test R²: {metrics['ttd']['r2_test']:.4f}")
+                    logger.info(f"    Test RMSE: {metrics['ttd']['rmse_test']:.4f}")
+
+                    # Save to surrogate dir
+                    builder.save_surrogates(args.surrogate_dir, version="v1")
+                    logger.info(f"[OK] Surrogates saved to {args.surrogate_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to train v1 surrogates: {e}", exc_info=True)
+                    return 1
         else:
-            logger.info(f"Found existing surrogate files at {saved_ml_dir}")
+            logger.info(f"Found existing surrogate files for {surrogate_version.upper()}")
 
-        # Load surrogates
+        # Load surrogates (v2_rl or v1)
         try:
-            surrogate_loader = SurrogateLoader(str(args.surrogate_dir))
-            if not surrogate_loader.is_initialized():
-                logger.error("Surrogates loaded but not fully initialized")
-                return 1
-            logger.info(f"[OK] Loaded {len(surrogate_loader.surrogates)} surrogate models")
+            if use_v2_rl:
+                logger.info(f"[*] Loading v2_rl surrogates...")
+                surrogate_loader = SurrogateLoaderV2RL(args.surrogate_dir)
+                logger.info(f"[OK] Loaded v2_rl surrogates ([SNR, biosensor, noise])")
+            else:
+                logger.info(f"[*] Loading v1 surrogates...")
+                surrogate_loader = SurrogateLoader(str(args.surrogate_dir))
+                if not surrogate_loader.is_initialized():
+                    logger.error("Surrogates loaded but not fully initialized")
+                    return 1
+                logger.info(f"[OK] Loaded {len(surrogate_loader.surrogates)} surrogate models")
         except FileNotFoundError as e:
             logger.error(f"Failed to load surrogates: {e}")
             return 1
@@ -244,7 +319,17 @@ Examples:
 
         search_space = BiosensorSearchSpace()
         physics_model = PhysicsForwardModel()
-        objective_fn = ObjectiveFunction(physics_model, surrogate_loader)
+
+        # Initialize objective function with correct version
+        if use_v2_rl:
+            logger.info(f"[*] Initializing ObjectiveFunctionV2RL...")
+            objective_fn = ObjectiveFunctionV2RL(physics_model, surrogate_loader)
+            logger.info(f"[OK] Objective function using v2_rl surrogates (physics-derived SNR)")
+        else:
+            logger.info(f"[*] Initializing ObjectiveFunction (v1)...")
+            objective_fn = ObjectiveFunction(physics_model, surrogate_loader)
+            logger.info(f"[OK] Objective function using v1 surrogates (legacy)")
+
         robustness_analyzer = RobustnessAnalyzer(objective_fn)
         acquisition_fn = ExpectedImprovement(xi=0.01)
 

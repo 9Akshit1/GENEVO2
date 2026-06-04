@@ -1,0 +1,47 @@
+{
+  "version": "v2_rl",
+  "approach": "RL-based (features: SNR, biosensor_type, noise_preset)",
+  "feature_names": [
+    "snr_db",
+    "biosensor_type_encoded",
+    "noise_preset_encoded"
+  ],
+  "feature_note": "Scenario intentionally excluded to prevent leakage",
+  "n_features": 3,
+  "label_encoder_classes": {
+    "biosensor_type": [
+      "amplifying",
+      "direct_binding"
+    ],
+    "noise_preset": [
+      "high",
+      "low",
+      "medium"
+    ]
+  },
+  "scaler_mean": [
+    4.971557493630486,
+    0.4972,
+    1.1342
+  ],
+  "scaler_scale": [
+    24.331096055042508,
+    0.4999921599385334,
+    0.8604593889312848
+  ],
+  "training_bounds": {
+    "snr_min": -96.54138946533203,
+    "snr_max": 31.437908172607422
+  },
+  "model_types": {
+    "detection_rate": {
+      "model_type": "GradientBoostingRegressor"
+    },
+    "fnr": {
+      "model_type": "GradientBoostingRegressor"
+    },
+    "ttd": {
+      "model_type": "RandomForestRegressor"
+    }
+  }
+}
