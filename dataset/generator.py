@@ -1,5 +1,13 @@
 """
-Dataset generation orchestrator.
+Dataset generation orchestrator - v5.0 (Paired-Propagation Instrumentation).
+
+INTEGRATION OF INSTRUMENTATION:
+===============================
+- Paired propagation: Single biological realization through all stages
+- No resampling: Biology generated once, propagated through ODE→biosensor→noise→threshold→TTD
+- Scalar metrics: Stage metrics extracted (mean, AUC, terminal_mean, etc.)
+- Stage deltas: Explicit degradation quantification between stages
+- Reproducibility: RNG seeds and parameter hashes preserved
 """
 
 import numpy as np
@@ -9,54 +17,78 @@ import os
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from multiprocessing import Pool
 import logging
 
-# Import project modules
 from models.environment_configs import get_config, list_scenarios
 from models.biosensors import generate_random_biosensor_config, create_biosensor
 from models.noise import get_noise_model
+from models.instrumentation_utilities import (
+    BiologicalRealization,
+    PairedPropagationRun,
+    create_instrumented_run,
+)
 from simulation.simulator import BoneEnvironmentSimulator
 from simulation.biosensor_engine import BiosensorEngine
-from utils.validators import (validate_simulation_output, 
-                              validate_biosensor_config,
-                              validate_parameters)
 
 logger = logging.getLogger(__name__)
 
+
 def cleanup_for_json(data):
-    """Recursively converts NumPy types in a dictionary or list to Python types."""
+    """Recursively convert all types to JSON-serializable natives."""
+    if data is None:
+        return None
+    
     if isinstance(data, dict):
         return {k: cleanup_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
+    
+    if isinstance(data, (list, tuple)):
         return [cleanup_for_json(e) for e in data]
-    elif hasattr(data, 'dtype') and 'float' in str(data.dtype):
-        # Convert numpy floats/NamedArray to standard Python float
-        return float(data)
-    elif hasattr(data, 'tolist'):
-        # Convert numpy arrays/NamedArray to standard Python lists
+    
+    if type(data).__name__ == 'NamedArray':
+        try:
+            return data.tolist()
+        except:
+            try:
+                return list(data)
+            except:
+                return [float(x) for x in data]
+    
+    if isinstance(data, np.ndarray):
         return data.tolist()
-    else:
-        # Return as is if not a known problematic type
+    
+    if isinstance(data, (np.floating, float)):
+        val = float(data)
+        return None if np.isnan(val) else val
+    
+    if isinstance(data, (np.integer, int)):
+        return int(data)
+    
+    if isinstance(data, (np.bool_, bool)):
+        return bool(data)
+    
+    if hasattr(data, 'tolist') and not isinstance(data, str):
+        try:
+            return cleanup_for_json(data.tolist())
+        except:
+            pass
+    
+    if isinstance(data, str):
         return data
+    
+    return str(data)
+
 
 class DatasetGenerator:
     """
     Orchestrates generation of simulation dataset.
+    V5.0: Implements paired-propagation instrumentation.
     """
     
     def __init__(self,
                  antimony_model_path: str,
                  output_dir: str = "data",
                  seed: Optional[int] = None):
-        """
-        Initialize dataset generator.
-        
-        Args:
-            antimony_model_path: Path to Antimony bone environment model
-            output_dir: Output directory for dataset
-            seed: Random seed for reproducibility
-        """
+        """Initialize dataset generator."""
         self.antimony_model_path = antimony_model_path
         self.output_dir = output_dir
         self.seed = seed
@@ -64,41 +96,52 @@ class DatasetGenerator:
         if seed is not None:
             np.random.seed(seed)
         
-        # Create output directories
         self.metadata_dir = os.path.join(output_dir, 'metadata')
         self.timeseries_dir = os.path.join(output_dir, 'timeseries')
         
         for directory in [self.output_dir, self.metadata_dir, self.timeseries_dir]:
             os.makedirs(directory, exist_ok=True)
         
-        # Initialize simulator
         self.simulator = BoneEnvironmentSimulator(antimony_model_path)
-        
-        # Master index for all simulations
         self.master_index = []
+        
+        self.generation_stats = {
+            'total_attempted': 0,
+            'total_succeeded': 0,
+            'total_failed': 0,
+            'failed_reasons': {},
+            'rejected_parameters': 0,
+        }
         
         logger.info(f"Initialized DatasetGenerator, output to: {output_dir}")
     
-    def generate_single_simulation(self,
-                                  scenario_name: str,
-                                  biosensor_config: Dict,
-                                  noise_preset: str = 'medium',
-                                  duration: float = 3600.0,
-                                  num_points: int = 361,
-                                  apply_variability: bool = True) -> Dict:
+    def generate_single_simulation_instrumented(self,
+                                            scenario_name: str,
+                                            biosensor_config: Dict,
+                                            noise_preset: str = 'medium',
+                                            duration: float = 3600.0,
+                                            num_points: int = 361,
+                                            apply_variability: bool = True,
+                                            instrument: bool = True,
+                                            rng_seed: Optional[int] = None) -> Optional[Dict]:
         """
-        Generate a single simulation run.
+        Generate a single simulation run with instrumentation.
+        
+        CRITICAL DESIGN:
+          - Single biological realization (params drawn once)
+          - Propagated through ALL stages without resampling
+          - Stage metrics extracted at each transformation
+          - Stage deltas computed to quantify degradation
         
         Args:
             scenario_name: 'healthy', 'pmo', or 'ckd_mbd'
-            biosensor_config: Biosensor configuration dictionary
+            biosensor_config: Biosensor circuit configuration
             noise_preset: 'low', 'medium', or 'high'
             duration: Simulation duration (seconds)
-            num_points: Number of time points
-            apply_variability: Apply parameter variability for diversity
-        
-        Returns:
-            Dictionary with simulation results and metadata
+            num_points: Number of output time points
+            apply_variability: Whether to apply parameter variability
+            instrument: Whether to record instrumentation metadata
+            rng_seed: RNG seed for reproducibility (optional)
         """
         run_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat()
@@ -106,101 +149,269 @@ class DatasetGenerator:
         logger.debug(f"Starting simulation {run_id[:8]}... ({scenario_name})")
         
         try:
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION SETUP
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented = create_instrumented_run(
+                    scenario_name,
+                    biosensor_config,
+                    noise_preset
+                )
+            else:
+                instrumented = None
+            
+            # ════════════════════════════════════════════════════════════════
+            # GENERATE BIOLOGICAL REALIZATION (ONCE - CRITICAL!)
+            # ════════════════════════════════════════════════════════════════
+            
+            # Set seed if provided
+            if rng_seed is not None:
+                np.random.seed(rng_seed)
+            else:
+                rng_seed = np.random.randint(0, 2**31)
+            
             # Get environment configuration
             env_config = get_config(scenario_name)
             
-            # Apply variability if requested
-            if apply_variability:
-                params = env_config.apply_variability(variability=0.15)
-            else:
-                params = env_config.get_params()
+            # FIX 2: Rejection sampling for out-of-bounds parameters
+            max_resample_attempts = 10
+            for attempt in range(max_resample_attempts):
+                try:
+                    if apply_variability:
+                        params = env_config.apply_variability(variability=0.15)
+                    else:
+                        params = env_config.get_params()
+                    break  # Success
+                except ValueError as e:
+                    self.generation_stats['rejected_parameters'] += 1
+                    if attempt < max_resample_attempts - 1:
+                        logger.debug(f"Parameter out of bounds, resampling ({attempt+1}/{max_resample_attempts})...")
+                        continue
+                    else:
+                        raise ValueError(f"Max resample attempts exceeded: {e}")
+            
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record biological realization
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                bio_realization = BiologicalRealization(
+                    params=params,
+                    rng_seed=rng_seed,
+                    scenario=scenario_name
+                )
+            
+            # ════════════════════════════════════════════════════════════════
+            # RUN ODE SIMULATION (SINGLE RUN - NO RESAMPLING)
+            # ════════════════════════════════════════════════════════════════
             
             # Set parameters in simulator
             self.simulator.reset()
             self.simulator.set_parameters(params)
             
-            # Run simulation
+            # FIX 1: Equilibrate to new parameters before measurement
+            logger.debug(f"Running equilibration phase...")
+            self.simulator.equilibrate_to_new_params(duration_seconds=600.0)
+            
+            # Run actual measurement
             time, species_data = self.simulator.simulate(
                 duration=duration,
                 num_points=num_points,
                 reset=False
             )
             
-            # Validate simulation output
-            validate_simulation_output(time, species_data)
+            # Convert NamedArray to numpy
+            time = np.array(time, dtype=np.float64)
+            species_data_clean = {}
+            for key, value in species_data.items():
+                if type(value).__name__ == 'NamedArray':
+                    species_data_clean[key] = np.array(value, dtype=np.float64)
+                else:
+                    species_data_clean[key] = value
+            species_data = species_data_clean
             
-            # Create biosensor and apply measurement
-            biosensor = create_biosensor(biosensor_config)
-            noise_model = get_noise_model(noise_preset)
-            engine = BiosensorEngine(biosensor, noise_model)
+            # FIX 5: Check diffusion equilibrium
+            self.simulator.check_diffusion_equilibrium(species_data)
             
-            measured_signal, measurement_metadata = engine.measure(
-                time, species_data, add_noise=True
-            )
+            # FIX 1 (validation): Check system reached equilibrium
+            equilibrium_stats = self.simulator.validate_equilibrium(species_data, time)
             
-            # Compute error metrics
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record ODE output (Stage 0)
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented.set_biological_realization(bio_realization, time, species_data)
+                instrumented.record_stage_0_ode()
+            
+            # Get sclerostin concentration
             true_sclerostin = species_data.get('Sclerostin_sensor',
-                                              species_data.get('Sclerostin_bone'))
+                                               species_data.get('Sclerostin_bone'))
             
-            # RMSE
-            # Note: biosensor signal and true concentration not directly comparable
-            # but we can compute deviation from true baseline
-            baseline_true = np.mean(true_sclerostin[:10])
-            baseline_measured = np.mean(measured_signal[:10])
+            sclerostin_mean = np.mean(true_sclerostin)
+            sclerostin_std = np.std(true_sclerostin)
+            sclerostin_max = np.max(true_sclerostin)
+            sclerostin_min = np.min(true_sclerostin)
             
-            # --- Apply cleanup function to all dictionaries that might contain NumPy types ---
-            # 1. Environment Parameters
-            cleaned_params = cleanup_for_json(params)
-
-            # 2. Biosensor Configuration (might contain Kd, kon, koff as NumPy floats)
-            cleaned_biosensor_config = cleanup_for_json(biosensor_config)
-
-            # 3. Noise Parameters
-            cleaned_noise_params = cleanup_for_json(noise_model.to_dict())
-
-            # 4. Measurement Metadata
-            cleaned_measurement_metadata = cleanup_for_json(measurement_metadata)
-            # ---------------------------------------------------------------------------------
-
-            # Collect comprehensive metadata
+            # ════════════════════════════════════════════════════════════════
+            # BIOSENSOR MEASUREMENT (NO RESAMPLING)
+            # ════════════════════════════════════════════════════════════════
+            
+            # Create biosensor from config
+            biosensor = create_biosensor(biosensor_config)
+            
+            # ════════════════════════════════════════════════════════════════
+            # STAGE 1: Clean biosensor output (NO NOISE)
+            # ════════════════════════════════════════════════════════════════
+            
+            engine_clean = BiosensorEngine(biosensor, noise_model=None)
+            clean_signal, _ = engine_clean.measure(time, species_data, add_noise=False)
+            
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record clean biosensor output
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented.record_stage_1_biosensor_clean(clean_signal)
+            
+            # ════════════════════════════════════════════════════════════════
+            # STAGE 2: Apply noise (TO SAME CLEAN SIGNAL - NO RE-MEASUREMENT)
+            # ════════════════════════════════════════════════════════════════
+            
+            # Create noise model
+            noise_model = get_noise_model(noise_preset)
+            
+            # CRITICAL: Apply noise to SAME clean signal
+            # Do NOT re-measure or re-simulate
+            noisy_signal, noise_components = noise_model.apply_noise(clean_signal, time)
+            snr = noise_model.get_snr(clean_signal, noisy_signal)
+            
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record noisy output
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented.record_stage_2_biosensor_noisy(noisy_signal, snr)
+            
+            # ════════════════════════════════════════════════════════════════
+            # STAGE 3: Threshold detection (ON SAME NOISY SIGNAL)
+            # ════════════════════════════════════════════════════════════════
+            
+            threshold = biosensor.threshold
+            elevation_mask = noisy_signal >= threshold
+            
+            # Count max consecutive points above threshold
+            max_consecutive = 0
+            current_run = 0
+            for is_elevated in elevation_mask:
+                if is_elevated:
+                    current_run += 1
+                    max_consecutive = max(max_consecutive, current_run)
+                else:
+                    current_run = 0
+            
+            detected = max_consecutive >= 5
+            
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record threshold metrics
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented.record_stage_3_thresholded(noisy_signal, threshold)
+            
+            # ════════════════════════════════════════════════════════════════
+            # STAGE 4: TTD calculation
+            # ════════════════════════════════════════════════════════════════
+            
+            if detected:
+                consecutive_count = 0
+                for i, is_elevated in enumerate(elevation_mask):
+                    if is_elevated:
+                        consecutive_count += 1
+                        if consecutive_count >= 5:
+                            processing_delay_idx = max(1, int(400.0 / (time[1] - time[0])))
+                            detection_idx = max(0, i - 4 + processing_delay_idx)
+                            if detection_idx < len(time):
+                                time_to_detection = float(time[detection_idx])
+                            else:
+                                time_to_detection = float(time[-1])
+                            break
+                else:
+                    time_to_detection = float(time[-1] * 2.5)
+            else:
+                time_to_detection = float(time[-1] * 2.5)
+            
+            # ════════════════════════════════════════════════════════════════
+            # INSTRUMENTATION: Record TTD
+            # ════════════════════════════════════════════════════════════════
+            
+            if instrument:
+                instrumented.record_stage_4_ttd(elevation_mask, time_to_detection)
+            
+            # ════════════════════════════════════════════════════════════════
+            # Calculate FNR
+            # ════════════════════════════════════════════════════════════════
+            
+            if detected:
+                false_negative_rate = 0.0
+            else:
+                margin = np.mean(noisy_signal) - threshold
+                snr_factor = 10.0 ** (-snr / 20.0)
+                margin_factor = max(0.0, 1.0 - abs(margin) / (threshold + 1e-6))
+                false_negative_rate = min(1.0, 0.5 * snr_factor + 0.5 * margin_factor)
+            
+            # ════════════════════════════════════════════════════════════════
+            # BUILD SIMULATION RECORD
+            # ════════════════════════════════════════════════════════════════
+            
             simulation_record = {
                 'run_id': run_id,
                 'timestamp': timestamp,
                 'scenario': scenario_name,
-                'duration': duration,
-                'num_points': num_points,
-                
-                # Environment parameters
-                'environment_params': cleaned_params, # <-- Use CLEANED
-                
-                # Biosensor configuration
-                'biosensor_config': cleaned_biosensor_config, # <-- Use CLEANED
-                
-                # Noise configuration
+                'biosensor_config': cleanup_for_json(biosensor_config),
                 'noise_preset': noise_preset,
-                'noise_params': cleaned_noise_params, # <-- Use CLEANED
-                
-                # Measurement metadata
-                'measurement': cleaned_measurement_metadata, # <-- Use CLEANED
-                
-                # Summary statistics (already converted via float() which is good)
-                'sclerostin_mean': float(np.mean(true_sclerostin)),
-                'sclerostin_max': float(np.max(true_sclerostin)),
-                'sclerostin_min': float(np.min(true_sclerostin)),
-                'sclerostin_std': float(np.std(true_sclerostin)),
-                
-                # File paths (relative to output_dir)
+                'measurement': {
+                    'snr_db': float(snr),
+                    'n_detections': int(1 if detected else 0),
+                    'detection_rate': float(1.0 if detected else 0.0),
+                    'time_to_detection': float(time_to_detection),
+                    'false_negative_rate': float(false_negative_rate),
+                },
+                'environment_params': cleanup_for_json(params),
+                'equilibration_check': cleanup_for_json(equilibrium_stats),
+                'sclerostin_mean': sclerostin_mean,
+                'sclerostin_max': sclerostin_max,
+                'sclerostin_min': sclerostin_min,
+                'sclerostin_std': sclerostin_std,
                 'metadata_file': f"metadata/{run_id}.json",
                 'timeseries_file': f"timeseries/{run_id}.csv"
             }
             
-            # Save metadata JSON
-            metadata_path = os.path.join(self.output_dir, 
-                                        simulation_record['metadata_file'])
-            with open(metadata_path, 'w') as f:
-                json.dump(simulation_record, f, indent=2)
+            # ════════════════════════════════════════════════════════════════
+            # ADD INSTRUMENTATION TO RECORD
+            # ════════════════════════════════════════════════════════════════
             
-            # Save time-series CSV
+            if instrument:
+                simulation_record['instrumentation'] = instrumented.get_metadata()
+            
+            # ════════════════════════════════════════════════════════════════
+            # VERIFY AND SAVE
+            # ════════════════════════════════════════════════════════════════
+            
+            # Verify JSON serializability
+            try:
+                json.dumps(simulation_record)
+            except TypeError as e:
+                raise ValueError(f"Record not JSON serializable: {e}")
+            
+            # Save metadata
+            metadata_path = os.path.join(self.output_dir, simulation_record['metadata_file'])
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(simulation_record, f, indent=2, ensure_ascii=False)
+            
+            # Save timeseries
             timeseries_data = {
                 'time': time,
                 'sclerostin_bone': species_data.get('Sclerostin_bone', np.zeros_like(time)),
@@ -210,22 +421,26 @@ class DatasetGenerator:
                 'osteocytes': species_data.get('Osteocytes', np.zeros_like(time)),
                 'osteoblasts': species_data.get('Osteoblasts', np.zeros_like(time)),
                 'osteoclasts': species_data.get('Osteoclasts', np.zeros_like(time)),
-                'biosensor_signal': measured_signal,
-                'detection_event': engine.biosensor.is_detected(measured_signal).astype(int)
+                'biosensor_signal': clean_signal,
+                'detection_event': elevation_mask.astype(int)
             }
             
             df = pd.DataFrame(timeseries_data)
-            timeseries_path = os.path.join(self.output_dir,
-                                          simulation_record['timeseries_file'])
-            df.to_csv(timeseries_path, index=False)
+            timeseries_path = os.path.join(self.output_dir, simulation_record['timeseries_file'])
+            df.to_csv(timeseries_path, index=False, encoding='utf-8')
             
-            logger.info(f"Completed simulation {run_id[:8]}...")
-            
+            logger.info(f"✅ Completed simulation {run_id[:8]}... ({scenario_name})")
             return simulation_record
             
         except Exception as e:
-            logger.error(f"Simulation {run_id[:8]}... failed: {e}", exc_info=True)
-            raise
+            logger.error(f"❌ Simulation {run_id[:8]}... failed: {str(e)}", exc_info=True)
+            
+            reason = type(e).__name__
+            if reason not in self.generation_stats['failed_reasons']:
+                self.generation_stats['failed_reasons'][reason] = 0
+            self.generation_stats['failed_reasons'][reason] += 1
+            
+            return None
     
     def generate_dataset(self,
                         n_simulations: int = 1000,
@@ -233,51 +448,44 @@ class DatasetGenerator:
                         biosensor_types: Optional[List[str]] = None,
                         noise_distribution: Optional[Dict[str, float]] = None,
                         duration: float = 3600.0,
-                        num_points: int = 361) -> pd.DataFrame:
-        """
-        Generate complete dataset with multiple simulations.
+                        num_points: int = 361,
+                        run_validator: bool = True) -> pd.DataFrame:
+        """Generate complete dataset with paired-propagation instrumentation."""
         
-        Args:
-            n_simulations: Total number of simulations to generate
-            scenario_distribution: Dict of scenario → probability
-                                 (default: equal distribution)
-            biosensor_types: List of biosensor circuit types to include
-                           (default: all types)
-            noise_distribution: Dict of noise preset → probability
-                              (default: equal distribution)
-            duration: Simulation duration (seconds)
-            num_points: Number of time points per simulation
-        
-        Returns:
-            DataFrame with master index of all simulations
-        """
-        # Default distributions
         if scenario_distribution is None:
-            scenarios = list_scenarios()
-            scenario_distribution = {s: 1.0/len(scenarios) for s in scenarios}
+            scenario_distribution = {
+                'healthy': 0.30,
+                'pmo': 0.35,
+                'ckd_mbd': 0.35
+            }
         
         if noise_distribution is None:
-            noise_distribution = {'low': 0.2, 'medium': 0.5, 'high': 0.3}
+            noise_distribution = {
+                'low': 0.15,
+                'medium': 0.55,
+                'high': 0.30
+            }
         
-        logger.info(f"Generating dataset: {n_simulations} simulations")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"DATASET GENERATION INITIATED (v5.0 Paired-Propagation Instrumentation)")
+        logger.info(f"{'='*80}")
+        logger.info(f"Total simulations: {n_simulations}")
         logger.info(f"Scenario distribution: {scenario_distribution}")
         logger.info(f"Noise distribution: {noise_distribution}")
         
-        # Generate simulations
         for i in range(n_simulations):
-            # Sample scenario
+            self.generation_stats['total_attempted'] += 1
+            
             scenario = np.random.choice(
                 list(scenario_distribution.keys()),
                 p=list(scenario_distribution.values())
             )
             
-            # Sample noise level
             noise_preset = np.random.choice(
                 list(noise_distribution.keys()),
                 p=list(noise_distribution.values())
             )
             
-            # Generate random biosensor config
             biosensor_type = None
             if biosensor_types is not None:
                 biosensor_type = np.random.choice(biosensor_types)
@@ -287,28 +495,34 @@ class DatasetGenerator:
                 seed=None
             )
             
-            try:
-                # Run simulation
-                record = self.generate_single_simulation(
-                    scenario_name=scenario,
-                    biosensor_config=biosensor_config,
-                    noise_preset=noise_preset,
-                    duration=duration,
-                    num_points=num_points,
-                    apply_variability=True
-                )
-                
-                # Add to master index
+            # NEW: Generate reproducible RNG seed for instrumentation
+            rng_seed = np.random.randint(0, 2**31)
+            
+            record = self.generate_single_simulation_instrumented(
+                scenario_name=scenario,
+                biosensor_config=biosensor_config,
+                noise_preset=noise_preset,
+                duration=duration,
+                num_points=num_points,
+                apply_variability=True,
+                instrument=True,  # Enable instrumentation
+                rng_seed=rng_seed  # Pass seed for reproducibility
+            )
+            
+            if record is not None:
                 self.master_index.append(record)
-                
-                if (i + 1) % 100 == 0:
-                    logger.info(f"Progress: {i+1}/{n_simulations} simulations completed")
-                    
-            except Exception as e:
-                logger.error(f"Simulation {i} failed, skipping: {e}")
-                continue
+                self.generation_stats['total_succeeded'] += 1
+            else:
+                self.generation_stats['total_failed'] += 1
+            
+            if (i + 1) % max(1, n_simulations // 10) == 0:
+                progress_pct = 100 * (i + 1) / n_simulations
+                logger.info(f"Progress: {i+1}/{n_simulations} ({progress_pct:.1f}%) "
+                           f"[Success: {self.generation_stats['total_succeeded']}, "
+                           f"Failed: {self.generation_stats['total_failed']}, "
+                           f"Rejected params: {self.generation_stats['rejected_parameters']}]")
         
-        # Create master index DataFrame
+        # Create master index
         master_df = pd.DataFrame([
             {
                 'run_id': r['run_id'],
@@ -316,21 +530,53 @@ class DatasetGenerator:
                 'scenario': r['scenario'],
                 'biosensor_type': r['biosensor_config']['circuit_type'],
                 'noise_preset': r['noise_preset'],
-                'snr_db': r['measurement']['snr_db'],
-                'n_detections': r['measurement']['n_detections'],
-                'time_to_detection': r['measurement']['time_to_detection'],
+                'snr_db': float(r['measurement'].get('snr_db', 0.0)),
+                'n_detections': int(r['measurement'].get('n_detections', 0)),
+                'detection_rate': float(r['measurement'].get('detection_rate', 0.0)),
+                'time_to_detection': float(r['measurement'].get('time_to_detection', 0.0)),
+                'false_negative_rate': float(r['measurement'].get('false_negative_rate', 0.0)),
                 'sclerostin_mean': r['sclerostin_mean'],
+                'sclerostin_std': r['sclerostin_std'],
                 'metadata_file': r['metadata_file'],
                 'timeseries_file': r['timeseries_file']
             }
             for r in self.master_index
         ])
         
-        # Save master index
         master_index_path = os.path.join(self.output_dir, 'master_index.csv')
-        master_df.to_csv(master_index_path, index=False)
+        master_df.to_csv(master_index_path, index=False, encoding='utf-8')
         
-        logger.info(f"Dataset generation complete: {len(self.master_index)} simulations")
-        logger.info(f"Master index saved to: {master_index_path}")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"DATASET GENERATION COMPLETE")
+        logger.info(f"{'='*80}")
+        logger.info(f"Total simulations generated: {len(self.master_index)}/{n_simulations}")
+        logger.info(f"Success rate: {100*self.generation_stats['total_succeeded']/max(1,self.generation_stats['total_attempted']):.1f}%")
+        logger.info(f"Parameter rejections (out-of-bounds): {self.generation_stats['rejected_parameters']}")
+        
+        if self.generation_stats['failed_reasons']:
+            logger.warning(f"Failure reasons: {self.generation_stats['failed_reasons']}")
+        
+        logger.info(f"\nSCENARIO DISTRIBUTION:")
+        scenario_counts = master_df['scenario'].value_counts()
+        for scenario, count in scenario_counts.items():
+            pct = 100 * count / len(master_df)
+            logger.info(f"  {scenario:12s}: {count:5d} ({pct:5.1f}%)")
+        
+        logger.info(f"\nNOISE LEVEL DISTRIBUTION:")
+        noise_counts = master_df['noise_preset'].value_counts()
+        for noise, count in noise_counts.items():
+            pct = 100 * count / len(master_df)
+            logger.info(f"  {noise:8s}: {count:5d} ({pct:5.1f}%)")
+        
+        logger.info(f"\nKEY METRICS:")
+        logger.info(f"  Time-to-Detection: mean={master_df['time_to_detection'].mean():.1f}s, "
+                   f"std={master_df['time_to_detection'].std():.1f}s")
+        logger.info(f"  False Negative Rate: mean={master_df['false_negative_rate'].mean():.2%}")
+        logger.info(f"  SNR: mean={master_df['snr_db'].mean():.1f}dB")
+        
+        logger.info(f"\nMaster index saved to: {master_index_path}")
+        logger.info(f"Instrumentation enabled: All metadata includes stagewise metrics")
+        logger.info(f"Next: python analyze_instrumentation.py {self.output_dir}")
+        logger.info(f"{'='*80}\n")
         
         return master_df

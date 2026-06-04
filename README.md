@@ -55,21 +55,95 @@ pyarrow>=5.0.0
 
 ## Usage
 
-### Generate Dataset
+Typical Scenarios
+Scenario 1: Quick Test
+bashpython main.py --n_simulations 100 --output_dir data_test
+# Runtime: ~2 minutes
+# Use: To test the system works
+Scenario 2: ML Training
+bashpython main.py --n_simulations 5000 --seed 42
+# Runtime: ~50 minutes
+# Use: Production dataset for surrogate training
+Scenario 3: High-Quality ML
+bashpython main.py --n_simulations 10000 --seed 42 --noise_distribution 0.3,0.6,0.1
+# Runtime: ~100 minutes
+# Use: Best ML model performance
+Scenario 4: Reproducible Results
+bashpython main.py --n_simulations 5000 --seed 42
+python main.py --n_simulations 5000 --seed 42  # Re-run
+# Both produce IDENTICAL results
 
-```bash
-# Generate 1000 simulations (default)
-python main.py
+Troubleshooting
+"ModuleNotFoundError: No module named 'tellurium'"
+bashpip install tellurium
+"Could not find models/bone_environment.ant"
 
-# Generate custom number of simulations
-python main.py --n_simulations 5000
+Make sure you're running from project root
+File created automatically, check permissions
 
-# Parallel execution with 8 cores
-python main.py --n_simulations 10000 --n_workers 8
+"Very slow generation" (>1 hour for 5000)
 
-# Verbose logging
-python main.py --log_level DEBUG
-```
+Normal - Tellurium simulations are CPU-intensive
+Or: Use fewer simulations (--n_simulations 1000)
+Or: Run in background: nohup python main.py &
+
+Validation shows "High censoring rate"
+
+Check detection rates in report
+If <60%, parameter issue (see README)
+
+Dataset size too large
+bash# Move data to different location
+mv data /mnt/large_drive/data
+# Adjust output_dir in code
+
+Next Steps
+After dataset is generated and validated:
+
+Train surrogate models
+
+bash   python rl_model.py --mode train_surrogates
+
+Run RL optimization
+
+bash   python rl_model.py --mode train_rl --timesteps 5000000
+
+Analyze results
+
+Check RL/sclerostin_rl_results/
+Review surrogate model performance
+Examine optimized biosensor designs
+
+
+
+
+Performance Tips
+Make it Faster
+bash# Fewer time points (less detail, faster)
+python main.py --num_points 100
+
+# Shorter simulation (30 min instead of 60)
+python main.py --duration 1800
+
+# Smaller dataset
+python main.py --n_simulations 1000
+Make it Better
+bash# Larger dataset (better ML training)
+python main.py --n_simulations 10000
+
+# More balanced noise
+python main.py --noise_distribution 0.33,0.34,0.33
+
+# Reproducible
+python main.py --seed 42
+Parallel Execution
+bash# Run multiple in parallel
+python main.py --n_simulations 2500 --output_dir data_part1 &
+python main.py --n_simulations 2500 --output_dir data_part2 &
+python main.py --n_simulations 2500 --output_dir data_part3 &
+python main.py --n_simulations 2500 --output_dir data_part4 &
+
+wait  # Wait for all to complete
 
 ### Configuration
 

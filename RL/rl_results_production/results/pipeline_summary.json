@@ -1,0 +1,118 @@
+{
+  "timestamp": "2026-05-24T17:53:18.743683",
+  "status": "COMPLETE",
+  "data_dir": "data",
+  "output_dir": "RL\\rl_results_production",
+  "dataset": {
+    "n_samples": 10000,
+    "detection_rate": {
+      "mean": 0.7915999889373779,
+      "std": 0.4061643183231354,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "fnr": {
+      "mean": 0.20712749660015106,
+      "std": 0.40393099188804626,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "ttd": {
+      "mean": 2408.785888671875,
+      "std": 3405.524658203125,
+      "min": 400.0,
+      "max": 9000.0
+    }
+  },
+  "surrogates": {
+    "detection_rate": {
+      "r2_train": 0.8637329499377641,
+      "r2_test": 0.7426910393864152,
+      "rmse_test": 0.20732825597169102,
+      "mae_test": 0.08027075006510606,
+      "cv_r2_mean": 0.7001031215704401,
+      "cv_r2_std": 0.022069558173300294,
+      "overfitting_gap": 0.12104191055134883,
+      "model_type": "GradientBoostingRegressor"
+    },
+    "fnr": {
+      "r2_train": 0.8575410015110008,
+      "r2_test": 0.752931090516952,
+      "rmse_test": 0.20249161226003026,
+      "mae_test": 0.07930203192498428,
+      "cv_r2_mean": 0.7108958554107302,
+      "cv_r2_std": 0.022524821233141347,
+      "overfitting_gap": 0.10460991099404882,
+      "model_type": "GradientBoostingRegressor"
+    },
+    "ttd": {
+      "r2_train": 0.8629504039792967,
+      "r2_test": 0.7763417280915796,
+      "rmse_test": 1621.1795614356154,
+      "mae_test": 644.4342881357509,
+      "cv_r2_mean": 0.747584503421551,
+      "cv_r2_std": 0.019143934396784076,
+      "overfitting_gap": 0.08660867588771703,
+      "model_type": "RandomForestRegressor"
+    }
+  },
+  "rl_training": {
+    "total_timesteps": 16384.0,
+    "total_episodes": 8.0,
+    "training_time": 332.441919,
+    "fps": 49.28379684873616,
+    "mean_episode_return": 1841.0942520682593,
+    "max_episode_return": 1982.2589971531554,
+    "min_episode_return": 1089.457318980617,
+    "std_return": 291.8545756478965,
+    "mean_length": 2048.0,
+    "episode_returns": [
+      1964.9943267787698,
+      1980.844581656379,
+      1980.045708097144,
+      1979.64499413741,
+      1977.6348117230773,
+      1982.2589971531554,
+      1089.457318980617,
+      1773.8732780195232
+    ],
+    "learning_summary": {
+      "total_episodes": 8,
+      "final_reward": 1773.8732780195232,
+      "mean_reward": 1841.0942520682595,
+      "max_reward": 1982.2589971531554,
+      "min_reward": 1089.457318980617,
+      "mean_length": 2048.0,
+      "reward_trend": "declining"
+    },
+    "n_samples": 10000.0,
+    "dr_r2_test": 0.7426910393864152,
+    "fnr_r2_test": 0.752931090516952,
+    "ttd_r2_test": 0.7763417280915796,
+    "dr_r2_train": 0.8637329499377641,
+    "fnr_r2_train": 0.8575410015110008,
+    "ttd_r2_train": 0.8629504039792967,
+    "dr_mean": 0.7915999889373779,
+    "dr_std": 0.4061643183231354,
+    "fnr_mean": 0.20712749660015106,
+    "fnr_std": 0.40393099188804626,
+    "ttd_mean": 2408.785888671875,
+    "ttd_std": 3405.524658203125,
+    "snr_min": -5.599356651306152,
+    "snr_max": 1.3616862297058105
+  },
+  "cache": {
+    "cached_items": {
+      "processed_data": {
+        "hash": "b8df996b",
+        "path": "RL\\rl_results_production\\.cache\\processed_data_b8df996b.pkl",
+        "params": {}
+      },
+      "surrogates": {
+        "hash": "4f8f54ef",
+        "path": "RL\\rl_results_production\\.cache\\surrogates_4f8f54ef.pkl",
+        "params": {}
+      }
+    }
+  }
+}

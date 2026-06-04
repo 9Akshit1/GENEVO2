@@ -7,40 +7,40 @@
   ],
   "data_statistics": {
     "signal_to_noise_ratio_SNR": {
-      "min": -6.116974703982868,
-      "max": 33.47995698870519,
-      "mean": 17.59996351927637,
-      "std": 6.922997797500615
+      "min": -117.3920933392863,
+      "max": 40.80228091320485,
+      "mean": 13.980942973712573,
+      "std": 13.117052637574977
     },
     "time_to_detection_threshold": {
-      "min": 0.0,
-      "max": 10.0,
-      "mean": 1.8871903230228484,
-      "std": 3.6953315598972356
+      "min": 14.338628046482459,
+      "max": 9000.0,
+      "mean": 2484.239526569203,
+      "std": 1653.7410861160306
     },
     "dynamic_range_of_output": {
-      "min": 0.7002761313423136,
-      "max": 17.647245588897796,
-      "mean": 7.306817212397897,
-      "std": 3.3553078267435286
+      "min": 0.09563897847928682,
+      "max": 34.850290863148416,
+      "mean": 9.244901427589175,
+      "std": 6.962130038328262
     },
     "false_negative_rate": {
       "min": 0.0,
-      "max": 0.008310249307479256,
-      "mean": 0.0005391783625694989,
-      "std": 0.0010497072308526855
+      "max": 0.20611211876214408,
+      "mean": 0.04585568069133379,
+      "std": 0.04456047374070946
     }
   },
   "model_architectures": {
     "signal_to_noise_ratio_SNR": "LGBMRegressor",
-    "time_to_detection_threshold": "LGBMRegressor",
-    "dynamic_range_of_output": "XGBRegressor",
-    "false_negative_rate": "XGBRegressor"
+    "time_to_detection_threshold": "ConstantPredictor",
+    "dynamic_range_of_output": "LGBMRegressor",
+    "false_negative_rate": "NNWrapper"
   },
   "r2_scores": {
-    "signal_to_noise_ratio_SNR": 0.9085120320749529,
-    "time_to_detection_threshold": 0.9085120320749529,
-    "dynamic_range_of_output": 0.9588373719024023,
-    "false_negative_rate": 0.9588373719024023
+    "signal_to_noise_ratio_SNR": 0.9156151032071419,
+    "time_to_detection_threshold": -0.014201539533335694,
+    "dynamic_range_of_output": 0.931569484918713,
+    "false_negative_rate": 0.6684215209109998
   }
 }
