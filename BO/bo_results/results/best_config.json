@@ -1,36 +1,46 @@
 {
   "biosensor_design": {
-    "type": "direct_binding",
-    "kd_nm": 1.1460805714349946,
-    "sensitivity": 1.0421083404223908,
-    "response_time_s": 3062.4764208926144
+    "type": "array",
+    "kd_nm": 1.0778918181837367,
+    "sensitivity": 1.907147931201982,
+    "response_time_s": 600.0,
+    "kd_ctx_nm": 0.1,
+    "kd_p1np_nm": 10.0,
+    "w_ctx": 0.297836778510067,
+    "w_p1np": 0.001
   },
   "measurement_environment": {
-    "noise_preset": "low",
-    "target_scenario": "ckd_mbd"
+    "noise_preset": "realistic",
+    "target_scenario": "pmo"
   },
   "predicted_performance": {
-    "detection_rate": 0.7828308127731352,
-    "false_negative_rate": 0.13392716549676775,
-    "time_to_detection_s": 2373.351359748818,
-    "estimated_snr_db": 17.37776717887626
+    "detection_rate": 0.805282144231556,
+    "detection_rate_ckd": 0.9224520391100567,
+    "detection_rate_pmo": 0.8945344189727569,
+    "detection_rate_min": 0.5988599746118543,
+    "false_negative_rate": 0.19471785576844405,
+    "time_to_detection_s": 2212.9469695947228,
+    "estimated_snr_db": 0.0,
+    "healthy_fp_rate": 0.03926038500238002
   },
   "optimization_metrics": {
-    "composite_score": 0.8292362183779053,
+    "composite_score": 0.6994499970578761,
     "gp_uncertainty": {
-      "mean": 0.8282191188047356,
-      "std": 0.18428161923284378,
+      "mean": 0.6294235174536094,
+      "std": 0.07622899924145983,
       "ci_95": [
-        0.46702714510836185,
-        1.0
+        0.4800146789403481,
+        0.7788323559668706
       ]
     }
   },
   "robustness_analysis": {
-    "mean_score_across_conditions": -66.39467503014397,
-    "worst_case_score": -100.0,
-    "best_case_score": 0.8292362183779053,
-    "score_std_dev": 47.52510723871285,
-    "robustness_index": 0.0
+    "disease_mean_dr": 0.9,
+    "disease_worst_case_dr": 0.7,
+    "disease_best_case_dr": 1.0,
+    "disease_dr_std": 0.11547005383792516,
+    "healthy_fp_rate": 0.0,
+    "robustness_index": 0.7699999999999999,
+    "evaluation_method": "ACTUAL SIMULATOR, disease scenarios only for DR metrics"
   }
 }

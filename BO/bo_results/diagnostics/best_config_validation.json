@@ -1,0 +1,90 @@
+{
+  "seed_config": 888,
+  "n_trials": 20,
+  "config_used": {
+    "type": "array",
+    "kd_nm": 0.178840739762234,
+    "sensitivity": 2.35372988954477,
+    "response_time_s": 600.0,
+    "kd_ctx_nm": 10.0,
+    "kd_p1np_nm": 0.2737908061885595,
+    "w_ctx": 0.49,
+    "w_p1np": 0.11702584140151868,
+    "noise_preset": "realistic",
+    "target_scenario": "pmo",
+    "biosensor_type": "array"
+  },
+  "surrogate_predictions": {
+    "detection_rate": 0.9207735482354723,
+    "detection_rate_ckd": 0.9736006683375104,
+    "detection_rate_pmo": 0.9315042445477228,
+    "detection_rate_min": 0.8572157318211838,
+    "false_negative_rate": 0.07922645176452765,
+    "time_to_detection_s": 1024.1844818784064,
+    "estimated_snr_db": 0.0,
+    "healthy_fp_rate": 0.05821673634511974
+  },
+  "validation_results": {
+    "by_scenario": {
+      "pmo_mild": {
+        "dr_mean": 0.35,
+        "dr_std": 0.47696960070847283,
+        "dr_ci95_low": 0.14095885572452488,
+        "dr_ci95_high": 0.559041144275475,
+        "ttd_mean": 6256.0,
+        "n_trials": 20
+      },
+      "pmo": {
+        "dr_mean": 0.65,
+        "dr_std": 0.4769696007084729,
+        "dr_ci95_low": 0.44095885572452487,
+        "dr_ci95_high": 0.8590411442754752,
+        "ttd_mean": 3430.5,
+        "n_trials": 20
+      },
+      "ckd_mbd": {
+        "dr_mean": 0.85,
+        "dr_std": 0.3570714214271425,
+        "dr_ci95_low": 0.6935065496578211,
+        "dr_ci95_high": 1.0064934503421787,
+        "ttd_mean": 1771.0,
+        "n_trials": 20
+      },
+      "healthy": {
+        "dr_mean": 0.0,
+        "dr_std": 0.0,
+        "dr_ci95_low": 0.0,
+        "dr_ci95_high": 0.0,
+        "ttd_mean": 9000.0,
+        "n_trials": 20
+      }
+    },
+    "comparison": {
+      "pmo_mild": {
+        "surrogate": 0.8572157318211838,
+        "real_sim": 0.35,
+        "bias": -0.5072157318211838
+      },
+      "pmo": {
+        "surrogate": 0.9315042445477228,
+        "real_sim": 0.65,
+        "bias": -0.2815042445477228
+      },
+      "ckd_mbd": {
+        "surrogate": 0.9736006683375104,
+        "real_sim": 0.85,
+        "bias": -0.12360066833751038
+      },
+      "healthy": {
+        "surrogate": 0.05821673634511974,
+        "real_sim": 0.0,
+        "bias": -0.05821673634511974
+      }
+    }
+  },
+  "summary": {
+    "disease_dr_mean": 0.6166666666666667,
+    "disease_dr_min": 0.35,
+    "fp_rate": 0.0
+  }
+}

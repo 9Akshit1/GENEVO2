@@ -1,0 +1,198 @@
+{
+  "run_id": "61437bba-c290-416c-a544-9ace22a401bf",
+  "timestamp": "2026-06-27T17:23:39.070597",
+  "scenario": "pmo_mild",
+  "biosensor_config": {
+    "circuit_type": "array",
+    "kd_scl": 1.2506073780838463,
+    "kd_ctx": 1.769345335081991,
+    "kd_p1np": 2.3162631002493996,
+    "w_scl": 0.37136377344563903,
+    "w_ctx": 0.22957466344124564,
+    "w_p1np": 0.39906156311311525,
+    "sensitivity": 2.0497392533715586,
+    "threshold": 2.9528336345906143,
+    "dynamic_range": [
+      0.0,
+      7.81528659072483
+    ],
+    "kd": 1.2506073780838463
+  },
+  "noise_preset": "realistic",
+  "measurement": {
+    "snr_db": 13.2695487570566,
+    "n_detections": 0,
+    "detection_rate": 0.0,
+    "time_to_detection": 9000.0,
+    "false_negative_rate": 1.0
+  },
+  "environment_params": {
+    "Estrogen": 0.5888586969881952,
+    "PTH": 49.21369163299388,
+    "k_prod_Scl": 2.125445947915623e-06,
+    "k_deg_Scl": 6.117088125821005e-05,
+    "Sclerostin_bone": 0.02004214311253478,
+    "k_prod_RANKL": 3.592156186736468e-06,
+    "k_deg_RANKL": 1.823234503228518e-05,
+    "RANKL_bone": 0.578500201110782,
+    "k_prod_OPG": 4.767798071767707e-05,
+    "k_deg_OPG": 1.820082021432707e-05,
+    "OPG_bone": 3.7931601937584496,
+    "MineralIon": 2.0768288616193016,
+    "k_prod_Mineral": 0.07699440723091946,
+    "k_loss_Mineral": 0.026739532106449665,
+    "k_prod_CTX": 5.360332916554364e-07,
+    "k_deg_CTX": 2.327270852753e-05,
+    "CTX_bone": 0.010095598487494115,
+    "k_prod_P1NP": 1.9230515365200806e-07,
+    "k_deg_P1NP": 1.9068153871166098e-05,
+    "P1NP_bone": 0.01557235774315917,
+    "Sclerostin_sensor": 0.5010535778133695,
+    "RANKL_sensor": 17.355006033323463,
+    "OPG_sensor": 113.79480581275348,
+    "CTX_sensor": 0.2523899621873529,
+    "P1NP_sensor": 0.38930894357897927
+  },
+  "equilibration_check": {
+    "Sclerostin_bone": 0.0026645664560316458,
+    "RANKL_bone": 2.027115336267503e-05,
+    "OPG_bone": 0.00012885403310714498,
+    "CTX_bone": 0.00012780304798416364,
+    "P1NP_bone": 0.0001636501604607732,
+    "Osteocytes": 4.2320865617131564e-05,
+    "Osteoblasts": 1.1931660398074515e-05,
+    "Osteoclasts": 6.438341390581518e-05,
+    "MineralIon": 1.1936216866783202e-05,
+    "Sclerostin_sensor": 0.0026703208678851434,
+    "RANKL_sensor": 2.0274793849414667e-05,
+    "OPG_sensor": 0.00012893511320376998,
+    "CTX_sensor": 0.00012782033604800033,
+    "P1NP_sensor": 0.00016371145891686754
+  },
+  "sclerostin_mean": 0.5360824973913182,
+  "sclerostin_max": 0.5617392026900714,
+  "sclerostin_min": 0.5098423928996597,
+  "sclerostin_std": 0.015020633282171259,
+  "ctx_mean": 0.2516429854988316,
+  "p1np_mean": 0.3907664310378817,
+  "metadata_file": "metadata/61437bba-c290-416c-a544-9ace22a401bf.json",
+  "timeseries_file": "timeseries/61437bba-c290-416c-a544-9ace22a401bf.csv",
+  "instrumentation": {
+    "biological_realization": {
+      "rng_seed": 511153277,
+      "scenario": "pmo_mild",
+      "realization_hash": "433c8bdd18fb511a"
+    },
+    "stages": {
+      "stage_0_ode": {
+        "stage": "stage_0_ode",
+        "description": "ODE concentration output",
+        "mean_signal": 0.5360824973913182,
+        "std_signal": 0.015020633282171259,
+        "min_signal": 0.5098423928996597,
+        "max_signal": 0.5617392026900714,
+        "median_signal": 0.5362292289648404,
+        "q25_signal": 0.5231503334953319,
+        "q75_signal": 0.5490895516648042,
+        "auc_total": 1929.8999076047103,
+        "auc_per_second": 0.5360833076679751,
+        "terminal_mean": 0.5592943688915942,
+        "terminal_std": 0.0014527869165791006,
+        "signal_range": 0.05189680979041167,
+        "cv_coefficient": 0.028019257027163888,
+        "species_tracked": "Sclerostin_sensor or Sclerostin_bone"
+      },
+      "stage_1_biosensor_clean": {
+        "stage": "stage_1_biosensor_clean",
+        "description": "Biosensor output (clean signal, no noise)",
+        "mean_signal": 2.466343560786319,
+        "std_signal": 0.020036286040914668,
+        "min_signal": 2.4310170777762155,
+        "max_signal": 2.500255438720476,
+        "median_signal": 2.466699508631312,
+        "q25_signal": 2.4491395506559797,
+        "q75_signal": 2.4837290912355767,
+        "auc_total": 8878.843891856128,
+        "auc_per_second": 2.466345525515591,
+        "terminal_mean": 2.4970770183938034,
+        "terminal_std": 0.0018902758082084497,
+        "signal_range": 0.06923836094426061,
+        "cv_coefficient": 0.008123882803467456,
+        "biosensor_type": "array",
+        "kd": 1.2506073780838463,
+        "sensitivity": 2.0497392533715586
+      },
+      "stage_2_biosensor_noisy": {
+        "stage": "stage_2_biosensor_noisy",
+        "description": "Biosensor output (with noise injection)",
+        "mean_signal": 2.564878929248704,
+        "std_signal": 0.5290589808453312,
+        "min_signal": 0.6856775100522293,
+        "max_signal": 4.017548366829145,
+        "median_signal": 2.561260886682101,
+        "q25_signal": 2.258771970668589,
+        "q75_signal": 2.9122488289506627,
+        "auc_total": 9227.938109331602,
+        "auc_per_second": 2.5633161414810006,
+        "terminal_mean": 2.690419460466066,
+        "terminal_std": 0.5456837531873285,
+        "signal_range": 3.331870856776916,
+        "cv_coefficient": 0.20627054743683415,
+        "noise_preset": "realistic",
+        "snr_db": 13.2695487570566
+      },
+      "stage_3_thresholded": {
+        "stage": "stage_3_thresholded",
+        "description": "Threshold crossing detection",
+        "threshold": 2.9528336345906143,
+        "fraction_above_threshold": 0.2299168975069252,
+        "time_to_first_crossing": 0.0,
+        "n_threshold_crossings": 116,
+        "mean_signal_above": 3.2394059351264812,
+        "std_signal_above": 0.2419048511624494,
+        "mean_signal_below": 2.363491369939872,
+        "std_signal_below": 0.41182788032505846,
+        "mean_margin_above_threshold": 0.2865723005358668,
+        "mean_margin_below_threshold": -0.5893422646507427
+      },
+      "stage_4_ttd": {
+        "stage": "stage_4_ttd",
+        "description": "Time-to-detection assignment",
+        "ttd_seconds": 9000.0,
+        "detected": false,
+        "is_sentinel": true
+      }
+    },
+    "stage_deltas": {
+      "delta_0_to_1": {
+        "transition": "stage_0_ode->stage_1_biosensor_clean",
+        "mean_delta": 1.9302610633950006,
+        "std_delta": 0.005017190146426178,
+        "max_delta": 1.9385162360304047,
+        "rms_delta": 1.9302675837965482,
+        "fraction_significantly_changed": 1.0
+      },
+      "delta_1_to_2": {
+        "transition": "stage_1_biosensor_clean->stage_2_biosensor_noisy",
+        "mean_delta": 0.09853536846238521,
+        "std_delta": 0.5261264286639824,
+        "max_delta": 1.7723101878729008,
+        "rms_delta": 0.535273983840738,
+        "fraction_significantly_changed": 1.0
+      },
+      "delta_2_to_3": {
+        "transition": "stage_2_biosensor_noisy->stage_3_thresholded",
+        "mean_delta": -1.8200847668789035,
+        "std_delta": 1.0581369812735084,
+        "max_delta": 2.9453761733460517,
+        "rms_delta": 2.105317655310772,
+        "fraction_significantly_changed": 0.7700831024930748
+      }
+    },
+    "propagation_integrity": {
+      "stages_recorded": 5,
+      "biological_hash_consistent": false,
+      "all_stages_use_same_time": true
+    }
+  }
+}

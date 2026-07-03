@@ -42,9 +42,18 @@ not full numpy arrays. This enables analysis without breaking JSON serialization
 import numpy as np
 from typing import Dict, Tuple
 import logging
-from models.noise import NoiseModel
+from simulation.models.noise import NoiseModel
 
 logger = logging.getLogger(__name__)
+
+# Sensor degradation model
+# Modified/locked DNA aptamers in physiological buffer:
+#   half-life ~6 months (180 days) under implant conditions.
+#   Ref: Delcanale et al. ACS Chem Biol 2021; Collett et al. Methods 2005.
+# Enzyme-linked sensors degrade faster (t½ ~14-30 days, excluded from current design).
+# At 12 months (2 half-lives): sensitivity × 0.25 → DR drops ~15-25pp.
+APTAMER_HALF_LIFE_DAYS: float = 180.0
+_K_DEG_SENSOR: float = np.log(2) / APTAMER_HALF_LIFE_DAYS  # per day
 
 
 def normalize_biosensor_output(signal: np.ndarray, 
@@ -102,28 +111,55 @@ class BiosensorEngine:
 
     def __init__(self,
                  biosensor,
-                 noise_model: NoiseModel | None = None):
-        self.biosensor   = biosensor
-        self.noise_model = noise_model
+                 noise_model: NoiseModel | None = None,
+                 detection_window: int = 10,
+                 rolling_window: int = 1):
+        """
+        Args:
+            detection_window: Consecutive points above threshold required for detection.
+                              Default 10 (was 5) — sweep shows p=10 controls FP at 13 dB.
+            rolling_window:   Causal rolling-mean window (points). 1 = no smoothing.
+                              Sweep shows rolling_mean WORSENS FP when drift is dominant
+                              (drift is sustained; smoothing amplifies it by reducing variance
+                              that would otherwise break consecutive runs). Default = 1 (off).
+        """
+        self.biosensor        = biosensor
+        self.noise_model      = noise_model
+        self.detection_window = detection_window
+        self.rolling_window   = rolling_window
         self.stage_data = {}  # For instrumentation: stores summaries only
         logger.info(
             f"BiosensorEngine: {biosensor.circuit_type}  "
             f"Kd={biosensor.kd:.3f}  sens={biosensor.sensitivity:.3f}  "
-            f"thr={biosensor.threshold:.3f} nM"
+            f"thr={biosensor.threshold:.3f} nM  "
+            f"det_window={detection_window}  roll_window={rolling_window}"
         )
 
     # ------------------------------------------------------------------
     def measure(self,
                 time:         np.ndarray,
                 species_data: Dict[str, np.ndarray],
-                add_noise:    bool = True) -> Tuple[np.ndarray, Dict]:
+                add_noise:    bool = True,
+                elapsed_days: float = 0.0,
+                patient_baseline_signal: float | None = None,
+                threshold_multiplier: float = 1.25,
+                t_half_days: float | None = None) -> Tuple[np.ndarray, Dict]:
         """
         Apply biosensor model to ODE output and return the measured signal.
 
         Args:
-            time:         Time array [seconds], shape (N,).
-            species_data: ODE output concentrations [nM], keyed by species name.
-            add_noise:    Whether to apply the instrument noise model.
+            time:                   Time array [seconds], shape (N,).
+            species_data:           ODE output concentrations [nM], keyed by species name.
+            add_noise:              Whether to apply the instrument noise model.
+            elapsed_days:           Days since implant (0 = no degradation).
+            patient_baseline_signal: Measured signal at enrollment (day 0) for this patient.
+                                    When provided, threshold = patient_baseline × threshold_multiplier
+                                    instead of the population-calibrated static threshold.
+            threshold_multiplier:   Multiplier applied to patient_baseline_signal to compute
+                                    the effective detection threshold (default 1.25).
+            t_half_days:            Patient-specific aptamer half-life (days).
+                                    When provided, overrides the global APTAMER_HALF_LIFE_DAYS.
+                                    Sample per patient as Normal(180, 30), clipped to [120, 240].
 
         Returns:
             measured_signal: Noisy biosensor output, shape (N,).
@@ -139,6 +175,9 @@ class BiosensorEngine:
             )
         rankl = species_data.get('RANKL_sensor', species_data.get('RANKL_bone'))
         opg   = species_data.get('OPG_sensor',   species_data.get('OPG_bone'))
+        # Multi-biomarker panel analytes (present when ODE model v6.0+ is used)
+        ctx   = species_data.get('CTX_sensor',  species_data.get('CTX_bone'))
+        p1np  = species_data.get('P1NP_sensor', species_data.get('P1NP_bone'))
 
         # ── Apply biosensor circuit model ─────────────────────────────────
         clean_signal = self.biosensor.measure(
@@ -146,28 +185,48 @@ class BiosensorEngine:
             time=time,
             rankl=rankl,
             opg=opg,
+            ctx=ctx,
+            p1np=p1np,
         )
+
+        # ── Sensor degradation (aptamer half-life model) ──────────────────
+        # Signal attenuates as aptamers denature over implant lifetime.
+        # elapsed_days=0 → no degradation (default, backward-compatible).
+        # t_half_days overrides global constant to support patient-specific variation.
+        if elapsed_days > 0.0:
+            k_deg = np.log(2) / t_half_days if t_half_days is not None else _K_DEG_SENSOR
+            degradation_factor = float(np.exp(-k_deg * elapsed_days))
+            clean_signal = clean_signal * degradation_factor
+        else:
+            degradation_factor = 1.0
 
         # ── Add instrument noise ──────────────────────────────────────────
         if add_noise and self.noise_model is not None:
-            noisy_signal, noise_components = self.noise_model.apply_noise(
-                clean_signal, time
-            )
+            noisy_signal, _ = self.noise_model.apply_noise(clean_signal, time)
             snr = self.noise_model.get_snr(clean_signal, noisy_signal)
         else:
             noisy_signal = clean_signal.copy()
             snr = np.inf
 
-        # ── Detect sustained elevation ────────────────────────────────────
-        threshold        = self.biosensor.threshold
-        elevation_mask   = noisy_signal >= threshold
-        max_consecutive  = self._count_sustained_elevation(elevation_mask)
-        detected         = max_consecutive >= 5
+        # ── Patient-specific threshold override ───────────────────────────
+        # When the patient's enrollment baseline is known, compute a personalized
+        # threshold rather than the population-calibrated static value.
+        _original_threshold = self.biosensor.threshold
+        if patient_baseline_signal is not None and patient_baseline_signal > 0.0:
+            self.biosensor.threshold = float(patient_baseline_signal * threshold_multiplier)
+
+        # ── Detect sustained elevation (hybrid: rolling mean + persistence) ──
+        detected, max_consecutive, _, _ = self._detect(noisy_signal)
+        threshold      = self.biosensor.threshold
+        elevation_mask = noisy_signal >= threshold  # raw crossings (for stage recording)
 
         # ── Compute metrics ───────────────────────────────────────────────
         detection_rate = 1.0 if detected else 0.0
-        time_to_detection = self._calculate_ttd(noisy_signal, sclerostin, time, snr)
-        false_negative_rate = self._calculate_fnr(noisy_signal, sclerostin, time, snr)
+        time_to_detection = self._calculate_ttd(noisy_signal, time, snr)
+        false_negative_rate = self._calculate_fnr(noisy_signal, snr)
+
+        # Restore static threshold so the biosensor object stays reusable
+        self.biosensor.threshold = _original_threshold
 
         # ── Stage recording for instrumentation (summaries only, JSON-safe) ───
         self.stage_data['stage_0_ode_output'] = {
@@ -205,7 +264,8 @@ class BiosensorEngine:
         
         self.stage_data['stage_4_persistence'] = {
             'max_consecutive': int(max_consecutive),
-            'persistence_window': 5,
+            'detection_window': self.detection_window,
+            'rolling_window':   self.rolling_window,
             'detected': bool(detected),
         }
 
@@ -221,6 +281,8 @@ class BiosensorEngine:
             'signal_std':        float(np.std(noisy_signal)),
             'has_noise':         add_noise and self.noise_model is not None,
             'sustained_duration': int(max_consecutive),
+            'elapsed_days':      float(elapsed_days),
+            'degradation_factor': float(degradation_factor),
         }
 
         return noisy_signal, metadata
@@ -230,10 +292,55 @@ class BiosensorEngine:
         return self.stage_data.copy()
 
     # ──────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _apply_rolling_mean(signal: np.ndarray, window_size: int) -> np.ndarray:
+        """
+        Causal rolling mean. Point i averages over the past window_size samples.
+        Edge points use all available samples (no look-ahead bias).
+        window_size=1 returns the signal unchanged.
+        """
+        if window_size <= 1:
+            return signal.copy()
+        n = len(signal)
+        cumsum = np.cumsum(signal)
+        result = np.empty(n, dtype=float)
+        result[:window_size] = cumsum[:window_size] / np.arange(1, window_size + 1)
+        result[window_size:] = (cumsum[window_size:] - cumsum[:n - window_size]) / window_size
+        return result
+
+    # ──────────────────────────────────────────────────────────────────────
+    def _detect(self, noisy_signal: np.ndarray) -> tuple:
+        """
+        Hybrid detector: rolling mean > threshold AND detection_window consecutive.
+
+        Returns:
+            detected (bool), max_consecutive (int), trigger_idx (int, -1 if none),
+            smoothed (ndarray).
+        """
+        smoothed  = self._apply_rolling_mean(noisy_signal, self.rolling_window)
+        threshold = self.biosensor.threshold
+        above     = smoothed >= threshold
+
+        max_consecutive = 0
+        current_run     = 0
+        trigger_idx     = -1
+
+        for i, is_above in enumerate(above):
+            if is_above:
+                current_run += 1
+                if current_run > max_consecutive:
+                    max_consecutive = current_run
+                if current_run >= self.detection_window and trigger_idx < 0:
+                    trigger_idx = i - self.detection_window + 1
+            else:
+                current_run = 0
+
+        detected = max_consecutive >= self.detection_window
+        return detected, max_consecutive, trigger_idx, smoothed
+
+    # ──────────────────────────────────────────────────────────────────────
     def _count_sustained_elevation(self, elevation_mask: np.ndarray) -> int:
-        """
-        Count the maximum number of consecutive points at or above threshold.
-        """
+        """Count the maximum number of consecutive True values in elevation_mask."""
         max_consecutive = 0
         current_run = 0
 
@@ -248,105 +355,60 @@ class BiosensorEngine:
 
     # ──────────────────────────────────────────────────────────────────────
     def _calculate_ttd(self,
-                      noisy_signal:  np.ndarray,
-                      true_signal:   np.ndarray,
-                      time:          np.ndarray,
-                      snr:           float) -> float:
+                      noisy_signal: np.ndarray,
+                      time:         np.ndarray,
+                      snr:          float) -> float:
         """
-        Time to detection: How long until signal sustains >= 5 consecutive
-        points above threshold?
+        Time-to-detection using the same hybrid detector as _detect().
 
-        DETERMINISTIC behavior (v3.1):
-          - Uses SNR-dependent processing delay (not random sampling)
-          - Delay values: 25s (SNR>25dB), 75s (SNR>15dB), 175s (SNR>5dB),
-            400s (SNR≤5dB)
-          - Returns time index when 5 consecutive points sustain above threshold
-          - Sentinel value: time[-1] * 2.5 if never detected
-
-        Args:
-            noisy_signal: Biosensor output (after noise)
-            true_signal:  True analyte concentration (for margin calc)
-            time:         Time array
-            snr:          Signal-to-noise ratio (dB)
-
-        Returns:
-            Time (seconds) to when signal sustains detection.
-            Sentinel value (time[-1] * 2.5) if never detected.
+        Uses SNR-dependent processing delay (not random):
+          SNR > 25 dB → 25 s,  SNR > 15 dB → 75 s,
+          SNR >  5 dB → 175 s,  SNR ≤  5 dB → 400 s.
+        Sentinel = time[-1] * 2.5 when never detected.
         """
-        threshold = self.biosensor.threshold
-        elevation_mask = noisy_signal >= threshold
-
-        # Compute SNR-dependent processing delay (deterministic, not random)
+        dt = time[1] - time[0]
         if snr > 25.0:
-            processing_delay_idx = max(1, int(25.0 / (time[1] - time[0])))
+            proc_delay_idx = max(1, int(25.0  / dt))
         elif snr > 15.0:
-            processing_delay_idx = max(1, int(75.0 / (time[1] - time[0])))
+            proc_delay_idx = max(1, int(75.0  / dt))
         elif snr > 5.0:
-            processing_delay_idx = max(1, int(175.0 / (time[1] - time[0])))
+            proc_delay_idx = max(1, int(175.0 / dt))
         else:
-            processing_delay_idx = max(1, int(400.0 / (time[1] - time[0])))
+            proc_delay_idx = max(1, int(400.0 / dt))
 
-        # Find first index where 5 consecutive points are >= threshold
+        smoothed = self._apply_rolling_mean(noisy_signal, self.rolling_window)
+        above    = smoothed >= self.biosensor.threshold
+
         consecutive_count = 0
-        for i, is_elevated in enumerate(elevation_mask):
-            if is_elevated:
+        for i, is_above in enumerate(above):
+            if is_above:
                 consecutive_count += 1
-                if consecutive_count >= 5:
-                    # Detection time is when the 5-point window starts,
-                    # plus processing delay
-                    detection_idx = max(0, i - 4 + processing_delay_idx)
-                    if detection_idx < len(time):
-                        return float(time[detection_idx])
-                    else:
-                        return float(time[-1])
+                if consecutive_count >= self.detection_window:
+                    detection_idx = max(0, i - self.detection_window + 1 + proc_delay_idx)
+                    return float(time[min(detection_idx, len(time) - 1)])
             else:
                 consecutive_count = 0
 
-        # Never detected: return sentinel (time[-1] * 2.5)
         return float(time[-1] * 2.5)
 
     # ──────────────────────────────────────────────────────────────────────
     def _calculate_fnr(self,
                       noisy_signal: np.ndarray,
-                      true_signal:  np.ndarray,
-                      time:         np.ndarray,
                       snr:          float) -> float:
         """
-        False negative rate (FNR): Probability that detection should have
-        occurred but didn't.
-
-        DETERMINISTIC behavior (v3.1):
-          - If detected (≥5 consecutive points above threshold): FNR = 0.0
-          - If not detected: FNR = estimated P(should have been detected)
-            based on signal margin and SNR
-
-        Args:
-            noisy_signal: Biosensor output (after noise)
-            true_signal:  True analyte concentration
-            time:         Time array
-            snr:          Signal-to-noise ratio (dB)
-
-        Returns:
-            FNR in [0, 1], where 0 means detection was successful,
-            1 means detection failed completely.
+        Deterministic FNR estimate. Uses _detect() so it respects rolling_window
+        and detection_window consistently with the rest of the engine.
+        Returns 0.0 if detected; a margin+SNR estimate otherwise.
         """
-        threshold = self.biosensor.threshold
-        elevation_mask = noisy_signal >= threshold
+        detected, _, _, _ = self._detect(noisy_signal)
+        if detected:
+            return 0.0
 
-        # Check if detection succeeded
-        if self._count_sustained_elevation(elevation_mask) >= 5:
-            return 0.0  # Detected successfully, no false negative
-
-        # Not detected: estimate FNR based on signal margin and SNR
-        margin = np.mean(noisy_signal) - threshold
-
-        # SNR-dependent FNR curve
-        snr_factor = 10.0 ** (-snr / 20.0)  # Convert dB to linear
+        threshold    = self.biosensor.threshold
+        margin       = np.mean(noisy_signal) - threshold
+        snr_factor   = 10.0 ** (-snr / 20.0)
         margin_factor = max(0.0, 1.0 - abs(margin) / (threshold + 1e-6))
-
-        fnr = min(1.0, 0.5 * snr_factor + 0.5 * margin_factor)
-
-        return float(fnr)
+        return float(min(1.0, 0.5 * snr_factor + 0.5 * margin_factor))
 
     # ──────────────────────────────────────────────────────────────────────
     def __repr__(self) -> str:

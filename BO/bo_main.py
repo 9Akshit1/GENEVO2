@@ -1,416 +1,769 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GENEVO2 Bayesian Optimization Main Entry Point
+GENEVO2 Unified Bayesian Optimization Entry Point
 
-Complete command-line interface for running BO optimization on biosensor parameters.
+Single command for all BO workflows. Use --mode to select:
+
+  standard        (default) One high-quality BO run  [n_init=50, n_iter=150]
+  converged       Multi-start convergence test across N seeds
+  subtypes        Patient-subtype-specific BO (4 clinical subtypes)
+  topology        2-channel vs 3-channel biosensor topology comparison
+  mobo            Multi-Objective BO (Pareto front of DR/therapeutic/specificity)
+  benchmark       BO vs DE vs CMA-ES vs NSGA-II vs Random on same budget
+  closed-loop     Closed-loop BO: real-sim validation + surrogate refinement
+  baseline        Priority 1: logistic regression baseline AUC on data_v18
+  kd-scan         Priority 2: systematic kd_ctx scan with real simulator
+  landscape       Priority 3: global LHS landscape audit (10k surrogate queries)
+  validate        Priority 4: surrogate rank-rho measurement on held-out data
+
+  --- Phase 2 scientific rigor modes ---
+  sim-validate    Real-simulator validation of best BO config (n=20 trials/scenario)
+  sobol           Sobol variance-based global sensitivity analysis (surrogate-fast)
+  search-diag     Search space boundary saturation diagnostics
+  dist-shift      Distribution shift & sensor drift robustness test
+  shap            Permutation importance + partial dependence of surrogates
+  robustness-regen Re-run robustness for all convergence seeds (fixes -100 sentinel)
+
+Output structure:
+  BO/bo_results/           -- surrogates + standard run results
+  BO/bo_results/convergence/  -- converged mode
+  BO/bo_results/subtypes/     -- subtypes mode
+  BO/bo_results/topology/     -- topology mode
+  BO/bo_results/mobo/         -- mobo mode
+  BO/bo_results/benchmark/    -- benchmark mode
+  BO/bo_results/closed_loop/  -- closed-loop mode
+  BO/bo_results/diagnostics/  -- baseline, kd-scan, landscape, validate
+
+Usage:
+  # Standard high-quality BO (default, ~5 min on CPU)
+  python BO/bo_main.py
+
+  # Multi-start convergence test (5 seeds)
+  python BO/bo_main.py --mode converged --n-runs 5
+
+  # Patient-subtype designs
+  python BO/bo_main.py --mode subtypes
+
+  # Full benchmark: BO vs DE vs CMA-ES vs NSGA-II vs Random
+  python BO/bo_main.py --mode benchmark --n-runs 20
+
+  # Diagnostic: is 0.967 DR actually hard? (Priority 1)
+  python BO/bo_main.py --mode baseline
+
+  # Validate surrogate quality (Priority 4)
+  python BO/bo_main.py --mode validate
 """
 
 import argparse
+import json
 import logging
+import subprocess
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 
-# Ensure we can import from BO
-sys.path.insert(0, str(Path(__file__).parent))
+_ROOT = Path(__file__).parent.parent
+_BO   = Path(__file__).parent
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_BO))
 
-# BO modules
-from core.surrogate_loader import SurrogateLoader
-from core.surrogate_loader_v2_rl import SurrogateLoaderV2RL
-from core.build_surrogates import SurrogateBuilder
-from core.build_surrogates_v2_rl_based import SurrogateBuilderV2RL
-from search_space.biosensor_space import BiosensorSearchSpace
-from evaluation.physics_forward_model import PhysicsForwardModel
-from evaluation.objective_function import ObjectiveFunction
-from evaluation.objective_function_v2_rl import ObjectiveFunctionV2RL
-from evaluation.robustness_analyzer import RobustnessAnalyzer
-from acquisition.acquisition_functions import ExpectedImprovement
-from optimizer.gaussian_process_bo import GaussianProcessBO
-from optimizer.bo_pipeline import BOPipeline
-from diagnostics.bo_vs_rl_comparison import BOVsRLComparison
 
-# Logging setup
-def setup_logging(log_dir: Path, verbose: bool = False) -> logging.Logger:
-    """Setup production-grade logging."""
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logging(log_dir: Path, verbose: bool = False) -> logging.Logger:
     log_dir.mkdir(parents=True, exist_ok=True)
+    level = logging.DEBUG if verbose else logging.INFO
 
-    logger = logging.getLogger("bo_optimization")
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    console_fmt = logging.Formatter("%(message)s")
+    file_fmt    = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-    # File handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(level)
+    ch.setFormatter(console_fmt)
+
     fh = logging.FileHandler(log_dir / "bo_optimization.log")
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    ))
-    logger.addHandler(fh)
+    fh.setFormatter(file_fmt)
 
-    # Console handler
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.INFO if not verbose else logging.DEBUG)
-    ch.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(ch)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    if not root.handlers:
+        root.addHandler(ch)
+        root.addHandler(fh)
 
-    return logger
+    return logging.getLogger("bo_main")
 
 
-def main():
-    """Main entry point with CLI arguments."""
+# ---------------------------------------------------------------------------
+# Subprocess dispatch helper
+# ---------------------------------------------------------------------------
 
-    parser = argparse.ArgumentParser(
-        description="GENEVO2 Bayesian Optimization for Biosensor Parameter Optimization",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Quick test (5 initial + 10 iterations)
-  python bo_main.py --n-init 5 --n-iter 10
+def _run_subprocess(cmd: list, check: bool = False) -> int:
+    """Run a subprocess command; return exit code."""
+    result = subprocess.run(cmd, text=True)
+    if check and result.returncode != 0:
+        print(f"[FAIL] Command exited with code {result.returncode}")
+    return result.returncode
 
-  # Full optimization (20 initial + 80 iterations = 100 evals)
-  python bo_main.py --n-init 20 --n-iter 80
 
-  # Custom data and surrogate directories
-  python bo_main.py --data-dir /path/to/data --surrogate-dir /path/to/surrogates
+# ---------------------------------------------------------------------------
+# STANDARD MODE — core GP-EI BO
+# ---------------------------------------------------------------------------
 
-  # Enable RL comparison
-  python bo_main.py --compare-rl --rl-dir rl_results_v7
+def run_standard(args) -> int:
+    from BO.core.surrogate_loader import SurrogateLoaderV3
+    from BO.core.build_surrogates import SurrogateBuilderV3
+    from search_space.biosensor_space import BiosensorSearchSpace
+    from evaluation.physics_forward_model import PhysicsForwardModel
+    from evaluation.robustness_analyzer import RobustnessAnalyzer
+    from evaluation.therapeutic_objective_v6 import TherapeuticObjectiveV6
+    from acquisition.acquisition_functions import ExpectedImprovement
+    from optimizer.gaussian_process_bo import GaussianProcessBO
+    from optimizer.bo_pipeline import BOPipeline
 
-  # Save to custom output
-  python bo_main.py --output-dir bo_results_custom
-        """,
-    )
+    output_dir = args.output_dir
 
-    # Paths
-    parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=Path("data"),
-        help="Path to data directory with master_index.csv",
-    )
-
-    parser.add_argument(
-        "--surrogate-dir",
-        type=Path,
-        default=Path("BO/bo_results"),
-        help="Path to surrogate models directory (default: BO/bo_results). "
-             "Surrogates are stored in surrogate_dir/saved_ml/",
-    )
-
-    parser.add_argument(
-        "--retrain-surrogates",
-        action="store_true",
-        help="Force retraining of surrogate models even if they exist",
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("BO/bo_results"),
-        help="Output directory for results (default: BO/bo_results)",
-    )
-
-    parser.add_argument(
-        "--rl-dir",
-        type=Path,
-        default=Path("rl_results_v7"),
-        help="RL results directory for comparison (default: rl_results_v7)",
-    )
-
-    # BO parameters
-    parser.add_argument(
-        "--n-init",
-        type=int,
-        default=20,
-        help="Number of initial random samples (default: 20)",
-    )
-
-    parser.add_argument(
-        "--n-iter",
-        type=int,
-        default=80,
-        help="Number of BO iterations (default: 80)",
-    )
-
-    parser.add_argument(
-        "--random-state",
-        type=int,
-        default=42,
-        help="Random seed for reproducibility (default: 42)",
-    )
-
-    # Flags
-    parser.add_argument(
-        "--use-v2-rl",
-        action="store_true",
-        default=True,  # v2_RL is now default (better than v1)
-        help="Use v2_RL surrogate approach (default: True, RL-based methodology)",
-    )
-
-    parser.add_argument(
-        "--use-v1",
-        action="store_true",
-        help="Use original v1 surrogate approach (not recommended - breaks)",
-    )
-
-    parser.add_argument(
-        "--compare-rl",
-        action="store_true",
-        help="Compare results with RL baseline",
-    )
-
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-
-    args = parser.parse_args()
-
-    # Handle version selection
-    if args.use_v1 and args.use_v2_rl:
-        print("Error: Cannot use both --use-v1 and --use-v2-rl")
-        return 1
-
-    use_v2_rl = args.use_v2_rl and not args.use_v1
-    surrogate_version = "v2_rl" if use_v2_rl else "v1"
-
-    # Validate paths
     if not args.data_dir.exists():
-        print(f"Error: Data directory not found: {args.data_dir}")
+        print(f"[ERROR] Data directory not found: {args.data_dir}")
         return 1
 
-    # Setup output (create surrogate dir if using default)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    args.surrogate_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = args.output_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger = _setup_logging(output_dir / "logs", verbose=args.verbose)
 
-    # Setup logging
-    logger = setup_logging(log_dir, verbose=args.verbose)
+    logger.info("=" * 80)
+    logger.info("GENEVO2 Bayesian Optimization  (mode: standard)")
+    logger.info("=" * 80)
+    logger.info(f"Started:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Surrogate:  BO/bo_results/saved_ml/ (rank-rho=0.8326 on data_v18)")
+    logger.info(f"n_init:     {args.n_init}  |  n_iter: {args.n_iter}")
+    logger.info(f"Output:     {output_dir.resolve()}")
+
+    # Build or load surrogates
+    saved_ml_dir  = args.surrogate_dir / "saved_ml"
+    scaler_path   = saved_ml_dir / "scaler.pkl"
+    surrogates_ok = scaler_path.exists()
+
+    if args.retrain_surrogates or not surrogates_ok:
+        logger.info("\n[1/5] Training surrogates from %s ...", args.data_dir)
+        builder = SurrogateBuilderV3(logger)
+        X_raw, df_results = builder.load_and_prepare_data(args.data_dir)
+        X = builder.fit_scaler(X_raw)
+        y_dr  = df_results["detection_rate"].values.astype(np.float32)
+        y_fnr = df_results["false_negative_rate"].values.astype(np.float32)
+        y_ttd = df_results["time_to_detection"].values.astype(np.float32)
+        try:
+            metrics = builder.train_all(X, y_dr, y_fnr, y_ttd)
+            logger.info("  DR ROC-AUC: %.4f", metrics["detection_rate"]["test_roc_auc"])
+            logger.info("  FNR R2:     %.4f", metrics["fnr"]["test_r2"])
+            logger.info("  TTD R2:     %.4f", metrics["ttd"]["test_r2"])
+            builder.save(args.surrogate_dir)
+        except Exception as e:
+            logger.error("Surrogate training failed: %s", e, exc_info=True)
+            return 1
+    else:
+        logger.info("\n[1/5] Loading existing surrogates")
 
     try:
-        logger.info("=" * 80)
-        logger.info("GENEVO2 Bayesian Optimization")
-        logger.info("=" * 80)
-        logger.info(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Data directory: {args.data_dir.resolve()}")
-        logger.info(f"Surrogate directory: {args.surrogate_dir.resolve()}")
-        logger.info(f"Output directory: {args.output_dir.resolve()}")
-
-        # =====================================================================
-        # Step 1: Build or Load Surrogates
-        # =====================================================================
-        logger.info("\n[1/5] Building/Loading Surrogate Models")
-        logger.info(f"-" * 80)
-        logger.info(f"Using surrogate approach: {surrogate_version.upper()}")
-        if use_v2_rl:
-            logger.info(f"  v2_RL: RL-based methodology [SNR, biosensor, noise]")
-            logger.info(f"  Features: Physics-derived (no data leakage)")
-            logger.info(f"  FNR R²: +0.58 (vs v1: -0.44)")
-        else:
-            logger.info(f"  v1: Original approach [kd, sensitivity, ...]")
-            logger.info(f"  WARNING: v1 is deprecated and unreliable")
-
-        # Check if surrogates need to be built
-        saved_ml_dir = args.surrogate_dir / "saved_ml"
-        scaler_file_v2 = saved_ml_dir / f"scaler_{surrogate_version}.pkl" if saved_ml_dir.exists() else None
-        surrogates_exist = scaler_file_v2 and scaler_file_v2.exists()
-
-        if args.retrain_surrogates or not surrogates_exist:
-            if args.retrain_surrogates:
-                logger.info(f"Retraining surrogates (--retrain-surrogates flag set)...")
-            else:
-                logger.info(f"Surrogates not found. Building from data using {surrogate_version.upper()}...")
-
-            if use_v2_rl:
-                # Use RL-based approach
-                builder = SurrogateBuilderV2RL(logger)
-                logger.info(f"[*] Loading training data...")
-                X, feature_names, df_results = builder.load_and_prepare_data(args.data_dir)
-
-                logger.info(f"[*] Fitting feature scaler...")
-                builder.fit_scaler(X)
-
-                # Prepare targets
-                y_dr = df_results['detection_rate'].values.astype(np.float32)
-                y_fnr = df_results['false_negative_rate'].values.astype(np.float32)
-                y_ttd = df_results['time_to_detection'].values.astype(np.float32)
-
-                try:
-                    logger.info(f"[*] Training surrogates with RL-based approach...")
-                    metrics = builder.train_all_surrogates(X, y_dr, y_fnr, y_ttd)
-                    logger.info(f"[OK] Surrogate training complete")
-
-                    # Log metrics (all regression)
-                    logger.info(f"\n  Detection Rate (Regression):")
-                    logger.info(f"    Test R²: {metrics['detection_rate']['r2_test']:.4f}")
-                    logger.info(f"    Test RMSE: {metrics['detection_rate']['rmse_test']:.4f}")
-                    logger.info(f"  FNR (Regression):")
-                    logger.info(f"    Test R²: {metrics['fnr']['r2_test']:.4f}")
-                    logger.info(f"    Test RMSE: {metrics['fnr']['rmse_test']:.4f}")
-                    logger.info(f"  TTD (Regression):")
-                    logger.info(f"    Test R²: {metrics['ttd']['r2_test']:.4f}")
-                    logger.info(f"    Test RMSE: {metrics['ttd']['rmse_test']:.4f}")
-
-                    # Save to surrogate dir
-                    builder.save_surrogates(args.surrogate_dir, version=surrogate_version)
-                    logger.info(f"[OK] Surrogates saved to {args.surrogate_dir}")
-                except Exception as e:
-                    logger.error(f"Failed to train v2_rl surrogates: {e}", exc_info=True)
-                    return 1
-            else:
-                # Use original v1 approach
-                builder = SurrogateBuilder(logger)
-                try:
-                    logger.info(f"[*] Loading and extracting features...")
-                    X, _, df_results = builder.load_and_extract_features(args.data_dir)
-
-                    logger.info(f"[*] Training surrogates with v1 approach...")
-                    metrics = builder.train_all_surrogates(X, df_results)
-                    logger.info(f"[OK] Surrogate training complete")
-
-                    # Log metrics
-                    logger.info(f"  Detection Rate (Classifier):")
-                    logger.info(f"    Test ROC-AUC: {metrics['detection_rate']['test_auc']:.4f}")
-                    logger.info(f"    Test Brier: {metrics['detection_rate']['test_brier']:.4f}")
-                    logger.info(f"  FNR (Quantile Regression):")
-                    logger.info(f"    Test R²: {metrics['fnr']['r2_test']:.4f}")
-                    logger.info(f"    Test RMSE: {metrics['fnr']['rmse_test']:.4f}")
-                    logger.info(f"  TTD (Quantile Regression):")
-                    logger.info(f"    Test R²: {metrics['ttd']['r2_test']:.4f}")
-                    logger.info(f"    Test RMSE: {metrics['ttd']['rmse_test']:.4f}")
-
-                    # Save to surrogate dir
-                    builder.save_surrogates(args.surrogate_dir, version="v1")
-                    logger.info(f"[OK] Surrogates saved to {args.surrogate_dir}")
-                except Exception as e:
-                    logger.error(f"Failed to train v1 surrogates: {e}", exc_info=True)
-                    return 1
-        else:
-            logger.info(f"Found existing surrogate files for {surrogate_version.upper()}")
-
-        # Load surrogates (v2_rl or v1)
-        try:
-            if use_v2_rl:
-                logger.info(f"[*] Loading v2_rl surrogates...")
-                surrogate_loader = SurrogateLoaderV2RL(args.surrogate_dir)
-                logger.info(f"[OK] Loaded v2_rl surrogates ([SNR, biosensor, noise])")
-            else:
-                logger.info(f"[*] Loading v1 surrogates...")
-                surrogate_loader = SurrogateLoader(str(args.surrogate_dir))
-                if not surrogate_loader.is_initialized():
-                    logger.error("Surrogates loaded but not fully initialized")
-                    return 1
-                logger.info(f"[OK] Loaded {len(surrogate_loader.surrogates)} surrogate models")
-        except FileNotFoundError as e:
-            logger.error(f"Failed to load surrogates: {e}")
-            return 1
-        except Exception as e:
-            logger.error(f"Unexpected error loading surrogates: {e}", exc_info=True)
-            return 1
-
-        # =====================================================================
-        # Step 2: Initialize Components
-        # =====================================================================
-        logger.info("\n[2/5] Initializing BO Components")
-        logger.info("-" * 80)
-
-        search_space = BiosensorSearchSpace()
-        physics_model = PhysicsForwardModel()
-
-        # Initialize objective function with correct version
-        if use_v2_rl:
-            logger.info(f"[*] Initializing ObjectiveFunctionV2RL...")
-            objective_fn = ObjectiveFunctionV2RL(physics_model, surrogate_loader)
-            logger.info(f"[OK] Objective function using v2_rl surrogates (physics-derived SNR)")
-        else:
-            logger.info(f"[*] Initializing ObjectiveFunction (v1)...")
-            objective_fn = ObjectiveFunction(physics_model, surrogate_loader)
-            logger.info(f"[OK] Objective function using v1 surrogates (legacy)")
-
-        robustness_analyzer = RobustnessAnalyzer(objective_fn)
-        acquisition_fn = ExpectedImprovement(xi=0.01)
-
-        logger.info(f"[OK] Initialized all components")
-        logger.info(search_space.summary())
-
-        # =====================================================================
-        # Step 3: Run BO Optimization
-        # =====================================================================
-        logger.info("\n[3/5] Running Bayesian Optimization")
-        logger.info("-" * 80)
-
-        optimizer = GaussianProcessBO(
-            objective_fn=objective_fn,
-            search_space=search_space,
-            acquisition_fn=acquisition_fn,
-            n_init=args.n_init,
-            n_iter=args.n_iter,
-            random_state=args.random_state,
-        )
-
-        pipeline = BOPipeline(
-            optimizer=optimizer,
-            objective_fn=objective_fn,
-            search_space=search_space,
-            robustness_analyzer=robustness_analyzer,
-            output_dir=args.output_dir,
-        )
-
-        result = pipeline.run()
-
-        # =====================================================================
-        # Step 4: Optional RL Comparison
-        # =====================================================================
-        if args.compare_rl:
-            logger.info("\n[4/5] Comparing with RL Baseline")
-            logger.info("-" * 80)
-
-            comparator = BOVsRLComparison(args.rl_dir)
-            comparison = comparator.compare(result["bo_result"])
-            comparator.save_comparison(comparison, args.output_dir / "results" / "bo_vs_rl.json")
-
-            logger.info("[OK] Comparison saved")
-        else:
-            logger.info("\n[4/5] Skipping RL Comparison (use --compare-rl to enable)")
-
-        # =====================================================================
-        # Step 5: Summary
-        # =====================================================================
-        logger.info("\n[5/5] Summary")
-        logger.info("-" * 80)
-
-        best_config = result["bo_result"]["config_best"]
-        best_score = result["bo_result"]["y_best"]
-        details = result["details"]
-
-        logger.info(f"Best composite score: {best_score:.4f}")
-        logger.info(f"Predicted Detection Rate: {details['dr_pred']:.4f}")
-        logger.info(f"Predicted False Negative Rate: {details['fnr_pred']:.4f}")
-        logger.info(f"Predicted Time to Detection: {details['ttd_pred_s']:.1f} s")
-        logger.info(f"Estimated SNR: {details['snr_db_est']:.2f} dB")
-        logger.info(f"\nBest Biosensor Design:")
-        logger.info(f"  Type: {best_config['biosensor_type']}")
-        logger.info(f"  Kd: {best_config['kd_nm']:.4f} nM")
-        logger.info(f"  Sensitivity: {best_config['sensitivity']:.4f}")
-        if best_config["biosensor_type"] == "amplifying":
-            logger.info(f"  Response time: {best_config['response_time_s']:.1f} s")
-        logger.info(f"  Noise preset: {best_config['noise_preset']}")
-        logger.info(f"  Target scenario: {best_config['target_scenario']}")
-
-        logger.info("\n" + "=" * 80)
-        logger.info("BO OPTIMIZATION COMPLETE")
-        logger.info("=" * 80)
-        logger.info(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Results available at: {args.output_dir.resolve()}")
-        logger.info(f"Best config: {args.output_dir / 'results' / 'best_config.json'}")
-
-        return 0
-
+        surrogate_loader = SurrogateLoaderV3(args.surrogate_dir)
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error("Failed to load surrogates: %s", e)
+        return 1
+
+    # Initialize components
+    logger.info("\n[2/5] Initializing BO components")
+    search_space   = BiosensorSearchSpace()
+    physics_model  = PhysicsForwardModel()
+    objective_fn   = TherapeuticObjectiveV6(physics_model, surrogate_loader)
+    robustness     = RobustnessAnalyzer(objective_fn)
+    acquisition_fn = ExpectedImprovement(xi=0.01)
+    logger.info("  Objective: V6 (relative threshold, sensitivity-independent)")
+    logger.info(search_space.summary())
+
+    # Run BO
+    logger.info("\n[3/5] Running GP-EI Bayesian Optimization")
+    optimizer = GaussianProcessBO(
+        objective_fn=objective_fn,
+        search_space=search_space,
+        acquisition_fn=acquisition_fn,
+        n_init=args.n_init,
+        n_iter=args.n_iter,
+        random_state=args.random_state,
+    )
+    pipeline = BOPipeline(
+        optimizer=optimizer,
+        objective_fn=objective_fn,
+        search_space=search_space,
+        robustness_analyzer=robustness,
+        output_dir=output_dir,
+    )
+    result = pipeline.run()
+
+    # Summary
+    logger.info("\n[4/5] Results")
+    best_cfg   = result["bo_result"]["config_best"]
+    best_score = result["bo_result"]["y_best"]
+    details    = result.get("details", {})
+    logger.info("  Best composite score : %.4f", best_score)
+    logger.info("  DR PMO-mild          : %.4f", details.get("dr_mild",  0.0))
+    logger.info("  DR PMO               : %.4f", details.get("dr_pmo",   0.0))
+    logger.info("  DR CKD               : %.4f", details.get("dr_ckd",   0.0))
+    logger.info("  FP (healthy)         : %.4f", details.get("dr_healthy", 0.0))
+    logger.info("  FNR mean             : %.4f", details.get("fnr_mean", 0.0))
+    logger.info("\n  Best biosensor design:")
+    for k, v in best_cfg.items():
+        if isinstance(v, float):
+            logger.info("    %-22s %.4f", k, v)
+        else:
+            logger.info("    %-22s %s", k, v)
+    logger.info("\nResults: %s", output_dir / "results" / "best_config.json")
+    logger.info("=" * 80)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# MOBO MODE — multi-objective Pareto front
+# ---------------------------------------------------------------------------
+
+def run_mobo(args) -> int:
+    from BO.core.surrogate_loader import SurrogateLoaderV3
+    from mobo.mobo_pipeline import MOBOPipeline
+
+    out_dir = args.output_dir / "mobo" if str(args.output_dir) == "BO/bo_results" else args.output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = _setup_logging(out_dir / "logs", verbose=args.verbose)
+    logger.info("=" * 80)
+    logger.info("GENEVO2 Multi-Objective BO  (mode: mobo)")
+    logger.info("=" * 80)
+
+    loader = SurrogateLoaderV3(args.surrogate_dir)
+
+    # Warm start: seed MOBO with best known config to guarantee a feasible init point
+    warm_configs = []
+    best_cfg_path = args.surrogate_dir / "results" / "best_config.json"
+    if best_cfg_path.exists():
+        try:
+            with open(best_cfg_path) as _f:
+                _saved = json.load(_f)
+            bd = _saved.get("biosensor_design", {})
+            warm_configs.append({
+                "biosensor_type": "array",
+                "noise_preset":   "realistic",
+                "target_scenario": "pmo",
+                "response_time_s": 600.0,
+                "kd_nm":       float(bd.get("kd_nm",       1.0)),
+                "sensitivity": float(bd.get("sensitivity", 1.0)),
+                "kd_ctx_nm":   float(bd.get("kd_ctx_nm",  1.0)),
+                "kd_p1np_nm":  float(bd.get("kd_p1np_nm", 1.0)),
+                "w_ctx":       float(bd.get("w_ctx",   0.1)),
+                "w_p1np":      float(bd.get("w_p1np",  0.1)),
+            })
+            logger.info(f"MOBO warm start loaded from {best_cfg_path}")
+        except Exception as _e:
+            logger.warning(f"Could not load warm start config: {_e}")
+
+    pipeline = MOBOPipeline(
+        surrogate_loader=loader,
+        n_init=args.n_init,
+        n_iterations=args.n_iter,
+        seed=args.random_state,
+        output_dir=str(out_dir),
+        warm_start_configs=warm_configs,
+    )
+    result = pipeline.run()
+    pipeline.print_pareto_summary(result)
+    logger.info("\n[OK] MOBO complete. %d Pareto solutions.", len(result.pareto_configs))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# BASELINE MODE — Priority 1: logistic regression AUC
+# ---------------------------------------------------------------------------
+
+def run_baseline(args) -> int:
+    """Logistic regression on raw biomarker values. Answers: is 0.967 DR trivial?"""
+    out_dir = args.output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logger = _setup_logging(out_dir / "logs", verbose=args.verbose)
+
+    logger.info("=" * 80)
+    logger.info("GENEVO2 Baseline Task Difficulty  (mode: baseline)")
+    logger.info("  Question: What AUC does a logistic classifier get on SOST alone?")
+    logger.info("  If AUC > 0.92 the detection task is trivially easy.")
+    logger.info("=" * 80)
+
+    import pandas as pd
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score, StratifiedKFold
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.metrics import roc_auc_score
+
+    csv = args.data_dir / "master_index.csv"
+    if not csv.exists():
+        print(f"[ERROR] master_index.csv not found: {csv}")
+        return 1
+
+    df = pd.read_csv(csv)
+    required = ["scenario", "sclerostin_mean"]
+    if not all(c in df.columns for c in required):
+        print(f"[ERROR] Required columns missing. Got: {list(df.columns)}")
+        return 1
+
+    # Binary: healthy vs disease
+    df["label_bin"] = (df["scenario"] != "healthy").astype(int)
+    # 4-class: healthy / pmo_mild / pmo / ckd_mbd
+    le4 = LabelEncoder()
+    df["label_4"] = le4.fit_transform(df["scenario"])
+
+    feature_sets = {
+        "SOST only":        ["sclerostin_mean"],
+        "SOST + CTX":       [c for c in ["sclerostin_mean", "ctx_mean"] if c in df.columns],
+        "SOST + P1NP":      [c for c in ["sclerostin_mean", "p1np_mean"] if c in df.columns],
+        "SOST + CTX + P1NP": [c for c in ["sclerostin_mean", "ctx_mean", "p1np_mean"] if c in df.columns],
+    }
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    clf = LogisticRegression(max_iter=1000, C=1.0)
+
+    results = {}
+    print("\n--- Binary classification (healthy vs disease) ---")
+    print(f"  {'Feature set':<25}  {'AUC':>7}  {'Acc':>7}")
+    print(f"  {'-'*25}  {'-'*7}  {'-'*7}")
+
+    for name, feats in feature_sets.items():
+        if len(feats) < 1:
+            continue
+        X = df[feats].values
+        y = df["label_bin"].values
+
+        auc_scores = cross_val_score(clf, X, y, cv=cv, scoring="roc_auc")
+        acc_scores = cross_val_score(clf, X, y, cv=cv, scoring="accuracy")
+        results[name] = {
+            "binary_auc_mean": float(auc_scores.mean()),
+            "binary_auc_std":  float(auc_scores.std()),
+            "binary_acc_mean": float(acc_scores.mean()),
+        }
+        print(f"  {name:<25}  {auc_scores.mean():.4f}  {acc_scores.mean():.4f}")
+
+    # Per-class analysis for SOST only
+    if "ctx_mean" in df.columns and "p1np_mean" in df.columns:
+        X_all = df[["sclerostin_mean", "ctx_mean", "p1np_mean"]].values
+    else:
+        X_all = df[["sclerostin_mean"]].values
+
+    print("\n--- 4-class (healthy/pmo_mild/pmo/ckd_mbd) ---")
+    print(f"  {'Feature set':<25}  {'Acc':>7}")
+    print(f"  {'-'*25}  {'-'*7}")
+    acc4 = cross_val_score(clf, X_all, df["label_4"].values, cv=cv, scoring="accuracy")
+    print(f"  {'SOST+CTX+P1NP':<25}  {acc4.mean():.4f}")
+    results["4class_acc"] = float(acc4.mean())
+
+    # PMO-mild specifically (hardest class)
+    df_disease = df[df["scenario"] != "healthy"].copy()
+    df_disease["is_mild"] = (df_disease["scenario"] == "pmo_mild").astype(int)
+    if "ctx_mean" in df.columns and "p1np_mean" in df.columns:
+        X_mild = df_disease[["sclerostin_mean", "ctx_mean", "p1np_mean"]].values
+    else:
+        X_mild = df_disease[["sclerostin_mean"]].values
+    y_mild = df_disease["is_mild"].values
+    if y_mild.sum() > 10:
+        auc_mild = cross_val_score(clf, X_mild, y_mild,
+                                   cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                                   scoring="roc_auc")
+        results["mild_auc_mean"] = float(auc_mild.mean())
+        print(f"\n  PMO-mild vs other disease: AUC = {auc_mild.mean():.4f}")
+
+    # Verdict
+    sost_auc = results.get("SOST only", {}).get("binary_auc_mean", 0.0)
+    all_auc  = results.get("SOST + CTX + P1NP", {}).get("binary_auc_mean", sost_auc)
+    print("\n--- Verdict ---")
+    if sost_auc > 0.92:
+        verdict = "TRIVIALLY EASY (SOST alone AUC > 0.92). Biosensor optimization primarily adds safety/efficiency value, not detection capability."
+    elif all_auc > 0.92:
+        verdict = "MODERATELY EASY with all 3 biomarkers (AUC > 0.92). SOST alone is harder, showing sensor design adds value."
+    else:
+        verdict = "NON-TRIVIAL detection (AUC <= 0.92). Biosensor optimization genuinely improves performance."
+    print(f"  {verdict}")
+    results["verdict"] = verdict
+
+    # Save
+    out_path = out_dir / "baseline_auc_results.json"
+    with open(out_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\n[OK] Results saved: {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# LANDSCAPE MODE — Priority 3: global LHS audit
+# ---------------------------------------------------------------------------
+
+def run_landscape(args) -> int:
+    """10k LHS samples scored by surrogate. Checks BO landscape and local optima."""
+    out_dir = args.output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logger = _setup_logging(out_dir / "logs", verbose=args.verbose)
+
+    logger.info("=" * 80)
+    logger.info("GENEVO2 Global Landscape Audit  (mode: landscape)")
+    logger.info("  Samples 10,000 configs via LHS and scores with v18 surrogate.")
+    logger.info("  Answers: is the BO optimum a local optimum or global?")
+    logger.info("=" * 80)
+
+    from scipy.stats import qmc
+    from BO.core.surrogate_loader import SurrogateLoaderV3
+    from evaluation.physics_forward_model import PhysicsForwardModel
+    from evaluation.therapeutic_objective_v6 import TherapeuticObjectiveV6
+    from search_space.biosensor_space import BiosensorSearchSpace
+
+    loader  = SurrogateLoaderV3(args.surrogate_dir)
+    phys    = PhysicsForwardModel()
+    v6      = TherapeuticObjectiveV6(phys, loader)
+    space   = BiosensorSearchSpace()
+
+    n_samples = args.n_lhs
+    print(f"\n  Sampling {n_samples:,} configs via LHS ...")
+
+    sampler = qmc.LatinHypercube(d=space.n_params, seed=42)
+    X_unit  = sampler.random(n=n_samples)
+
+    scores = []
+    configs = []
+    for i, x in enumerate(X_unit):
+        cfg   = space.vector_to_dict(x)
+        score = v6(cfg)
+        scores.append(score)
+        configs.append(cfg)
+        if (i + 1) % 1000 == 0:
+            print(f"    {i+1:6d}/{n_samples}  best_so_far={max(scores):.4f}", flush=True)
+
+    scores = np.array(scores)
+    top_pct = 0.01  # top 1%
+    top_k   = max(10, int(n_samples * top_pct))
+    top_idx = np.argsort(scores)[-top_k:][::-1]
+    top_scores  = scores[top_idx]
+    top_configs = [configs[i] for i in top_idx]
+
+    # Score statistics
+    print(f"\n  LHS landscape statistics ({n_samples:,} samples):")
+    print(f"    Mean score : {scores.mean():.4f}")
+    print(f"    Std score  : {scores.std():.4f}")
+    print(f"    P95 score  : {np.percentile(scores, 95):.4f}")
+    print(f"    Max score  : {scores.max():.4f}")
+    print(f"    Top 1% (n={top_k}) mean : {top_scores.mean():.4f}")
+
+    # Parameter distributions in top 1%
+    print(f"\n  Top 1% parameter distributions:")
+    for param in ["kd_nm", "sensitivity", "kd_ctx_nm", "kd_p1np_nm", "w_ctx", "w_p1np"]:
+        vals = [c.get(param, 0.0) for c in top_configs if isinstance(c.get(param), float)]
+        if vals:
+            print(f"    {param:<16}  mean={np.mean(vals):.3f}  std={np.std(vals):.3f}"
+                  f"  min={np.min(vals):.3f}  max={np.max(vals):.3f}")
+
+    # Compare against BO best (if available)
+    bo_best_path = args.surrogate_dir.parent / "bo_results" / "results" / "best_config.json"
+    if bo_best_path.exists():
+        with open(bo_best_path) as f:
+            bo_cfg_raw = json.load(f)
+        # Flatten biosensor_design + measurement_environment; rename "type" → "biosensor_type"
+        bo_cfg = {**bo_cfg_raw.get("biosensor_design", bo_cfg_raw),
+                  **bo_cfg_raw.get("measurement_environment", {})}
+        if "type" in bo_cfg and "biosensor_type" not in bo_cfg:
+            bo_cfg["biosensor_type"] = bo_cfg.pop("type")
+        bo_score = v6(bo_cfg)
+        pct_rank = 100.0 * (scores < bo_score).sum() / len(scores)
+        print(f"\n  BO best score vs LHS landscape:")
+        print(f"    BO score   : {bo_score:.4f}")
+        print(f"    LHS max    : {scores.max():.4f}")
+        print(f"    BO pct rank: {pct_rank:.1f}% (is BO in top {100-pct_rank:.1f}% of landscape?)")
+        if pct_rank > 95:
+            verdict = "BO found globally competitive region (top 5% of landscape)."
+        elif pct_rank > 80:
+            verdict = "BO is above average but not globally optimal — further exploration warranted."
+        else:
+            verdict = "BO may be stuck in local optimum. Consider restart with different acquisition."
+        print(f"    Verdict: {verdict}")
+    else:
+        verdict = "No BO reference result found for comparison."
+        print(f"\n  {verdict}")
+
+    # Save results
+    out = {
+        "n_samples":       n_samples,
+        "scores_summary": {
+            "mean": float(scores.mean()),
+            "std":  float(scores.std()),
+            "p95":  float(np.percentile(scores, 95)),
+            "max":  float(scores.max()),
+        },
+        "top1pct_mean_score": float(top_scores.mean()),
+        "top_configs_top5": top_configs[:5],
+        "top_scores_top5":  top_scores[:5].tolist(),
+        "verdict": verdict,
+    }
+    out_path = out_dir / "landscape_audit.json"
+    with open(out_path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"\n[OK] Landscape audit saved: {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="GENEVO2 Unified BO Entry Point",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    # Mode selector
+    p.add_argument(
+        "--mode",
+        choices=["standard", "converged", "subtypes", "topology", "mobo",
+                 "benchmark", "closed-loop", "baseline", "kd-scan", "landscape", "validate",
+                 "sim-validate", "sobol", "search-diag", "dist-shift", "shap", "robustness-regen"],
+        default="standard",
+        help="Optimization mode (default: standard)",
+    )
+
+    # Shared paths
+    p.add_argument("--data-dir",      type=Path, default=Path("data_v19"),
+                   help="Training data directory (default: data_v19)")
+    p.add_argument("--surrogate-dir", type=Path, default=Path("BO/bo_results"),
+                   help="Surrogate models directory (default: BO/bo_results)")
+    p.add_argument("--output-dir",    type=Path, default=None,
+                   help="Output directory (default: mode-specific under BO/bo_results/)")
+
+    # BO parameters
+    p.add_argument("--n-init",      type=int, default=50,
+                   help="LHS initial samples (default: 50)")
+    p.add_argument("--n-iter",      type=int, default=150,
+                   help="BO iterations (default: 150)")
+    p.add_argument("--random-state", type=int, default=42,
+                   help="Random seed (default: 42)")
+    p.add_argument("--retrain-surrogates", action="store_true",
+                   help="Force surrogate retraining")
+
+    # Multi-run parameters
+    p.add_argument("--n-runs", type=int, default=5,
+                   help="Number of independent runs (for converged/benchmark modes, default: 5)")
+
+    # Landscape mode
+    p.add_argument("--n-lhs", type=int, default=10000,
+                   help="LHS samples for landscape audit (default: 10000)")
+
+    # Subtypes
+    p.add_argument("--subtypes", nargs="+",
+                   choices=["young_pmo", "elderly_pmo", "ckd_controlled", "ckd_advanced"],
+                   default=None,
+                   help="Subtypes to run (default: all four)")
+
+    p.add_argument("--verbose", "-v", action="store_true")
+
+    return p.parse_args()
+
+
+def _default_output_dir(mode: str) -> Path:
+    base = Path("BO/bo_results")
+    mapping = {
+        "standard":         base,
+        "converged":        base / "convergence",
+        "subtypes":         base / "subtypes",
+        "topology":         base / "topology",
+        "mobo":             base / "mobo",
+        "benchmark":        base / "benchmark",
+        "closed-loop":      base / "closed_loop",
+        "baseline":         base / "diagnostics",
+        "kd-scan":          base / "diagnostics",
+        "landscape":        base / "diagnostics",
+        "validate":         base / "diagnostics",
+        "sim-validate":     base / "diagnostics",
+        "sobol":            base / "diagnostics",
+        "search-diag":      base / "diagnostics",
+        "dist-shift":       base / "diagnostics",
+        "shap":             base / "diagnostics",
+        "robustness-regen": base / "convergence",
+    }
+    return mapping.get(mode, base)
+
+
+def main() -> int:
+    args = parse_args()
+
+    # Resolve output dir
+    if args.output_dir is None:
+        args.output_dir = _default_output_dir(args.mode)
+
+    # ---- dispatch ----
+
+    if args.mode == "standard":
+        return run_standard(args)
+
+    elif args.mode == "converged":
+        cmd = [
+            sys.executable, str(_BO / "bo_converged.py"),
+            "--n-init",       str(args.n_init),
+            "--n-iter",       str(args.n_iter),
+            "--n-runs",       str(args.n_runs),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--output-dir",   str(args.output_dir),
+        ]
+        if args.verbose:
+            cmd.append("--verbose")
+        return _run_subprocess(cmd)
+
+    elif args.mode == "subtypes":
+        cmd = [
+            sys.executable, str(_BO / "bo_patient_subtypes.py"),
+            "--n-init",        str(args.n_init),
+            "--n-iter",        str(args.n_iter),
+            "--seed",          str(args.random_state),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--out-dir",       str(args.output_dir),
+        ]
+        if args.subtypes:
+            cmd += ["--subtypes"] + args.subtypes
+        if args.verbose:
+            cmd.append("--verbose")
+        return _run_subprocess(cmd)
+
+    elif args.mode == "topology":
+        cmd = [
+            sys.executable, str(_BO / "bo_topology_search.py"),
+            "--data-dir",      str(args.data_dir),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--output-dir",    str(args.output_dir),
+            "--n-init",        str(args.n_init),
+            "--n-iter",        str(args.n_iter),
+            "--random-state",  str(args.random_state),
+        ]
+        if args.verbose:
+            cmd.append("--verbose")
+        return _run_subprocess(cmd)
+
+    elif args.mode == "mobo":
+        return run_mobo(args)
+
+    elif args.mode == "benchmark":
+        budget = args.n_init + args.n_iter
+        cmd = [
+            sys.executable, str(_BO / "benchmarks" / "multi_optimizer_benchmark.py"),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--runs",    str(args.n_runs),
+            "--budget",  str(budget),
+            "--n-init",  str(args.n_init),
+            "--output",  str(args.output_dir / "benchmark_results.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "closed-loop":
+        cmd = [
+            sys.executable, str(_BO / "bo_closed_loop.py"),
+            "--n-rounds",      "5",
+            "--n-init",        str(args.n_init),
+            "--n-inner",       str(args.n_iter),
+            "--data-dir",      str(args.data_dir),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--out-dir",       str(args.output_dir),
+        ]
+        return _run_subprocess(cmd)
+
+    elif args.mode == "baseline":
+        return run_baseline(args)
+
+    elif args.mode == "kd-scan":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "kd_ctx_scan.py"),
+            "--n-trials", "20",
+            "--out", str(args.output_dir / "kd_ctx_scan_results.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "landscape":
+        return run_landscape(args)
+
+    elif args.mode == "validate":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "rank_rho_v18.py"),
+            "--out", str(args.output_dir / "rank_rho_results.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "sim-validate":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "validate_best_config.py"),
+            "--convergence-report", str(Path("BO/bo_results/convergence/convergence_report.json")),
+            "--seed-config", str(args.random_state if args.random_state != 42 else 888),
+            "--n-trials", "20",
+            "--out", str(args.output_dir / "best_config_validation.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "sobol":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "sobol_sensitivity.py"),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--N", str(getattr(args, "n_lhs", 512)),
+            "--out", str(args.output_dir / "sobol_results.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "search-diag":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "search_space_diagnostics.py"),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--convergence-report", str(Path("BO/bo_results/convergence/convergence_report.json")),
+            "--out", str(args.output_dir / "search_space_diagnostics.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "dist-shift":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "distribution_shift_test.py"),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--convergence-report", str(Path("BO/bo_results/convergence/convergence_report.json")),
+            "--seed-config", str(args.random_state if args.random_state != 42 else 888),
+            "--out", str(args.output_dir / "distribution_shift_results.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "shap":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "surrogate_shap.py"),
+            "--data-dir",      str(args.data_dir),
+            "--surrogate-dir", str(args.surrogate_dir),
+            "--out", str(args.output_dir / "surrogate_interpretability.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    elif args.mode == "robustness-regen":
+        cmd = [
+            sys.executable, str(_BO / "analysis" / "regenerate_robustness.py"),
+            "--convergence-report", str(Path("BO/bo_results/convergence/convergence_report.json")),
+            "--n-trials", "10",
+            "--out-patch", str(args.output_dir / "convergence_robustness_patch.json"),
+        ]
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        return _run_subprocess(cmd)
+
+    else:
+        print(f"[ERROR] Unknown mode: {args.mode}")
         return 1
 
 

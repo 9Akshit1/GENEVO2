@@ -7,12 +7,14 @@ Main BO algorithm using sklearn's GaussianProcessRegressor with Matern kernel
 and Expected Improvement (EI) acquisition function.
 """
 
+import warnings
 import numpy as np
 from pathlib import Path
 from scipy.optimize import minimize
 from scipy.stats import qmc
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+from sklearn.exceptions import ConvergenceWarning
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,9 +55,21 @@ class GaussianProcessBO:
         self.random_state = random_state
         self.rng = np.random.RandomState(random_state)
 
-        # Initialize GP
-        kernel = Matern(nu=2.5, length_scale_bounds=(0.01, 10.0)) + WhiteKernel(
-            noise_level_bounds=(1e-5, 1.0)
+        # Identify which search-space dimensions actually affect the objective.
+        # Single-value categoricals (biosensor_type, noise_preset) are always
+        # decoded to the same value regardless of the Sobol sample — pure noise.
+        # response_time_s was removed from the search space (PI=0, fixed at 600s).
+        # target_scenario is explicitly documented as "not used" by ObjectiveFunctionV3.
+        # Giving the GP noisy dims corrupts the kernel — fit the GP on real dims only.
+        self._active_dims = self._get_active_dims()
+        logger.info(
+            f"GP active dims: {len(self._active_dims)}/{search_space.n_params} "
+            f"({[list(search_space.parameters.keys())[i] for i in self._active_dims]})"
+        )
+
+        # Initialize GP — wider bounds prevent hyperparameter-at-bound ConvergenceWarnings
+        kernel = Matern(nu=2.5, length_scale_bounds=(0.01, 100.0)) + WhiteKernel(
+            noise_level_bounds=(1e-8, 1.0)
         )
         self.gp = GaussianProcessRegressor(
             kernel=kernel,
@@ -70,19 +84,44 @@ class GaussianProcessBO:
         self.y_observed = []
         self.iteration_history = []
 
+    def _get_active_dims(self) -> np.ndarray:
+        """Return indices of dimensions that genuinely affect the objective.
+
+        Excluded:
+          - Single-value categoricals (biosensor_type=['array'],
+            noise_preset=['realistic']): Sobol samples a random float but
+            vector_to_dict always decodes to the same string → y is uncorrelated
+            with this dimension.
+          - target_scenario: ObjectiveFunctionV3 explicitly ignores this field and
+            always evaluates all four scenarios.
+          (response_time_s was removed from BiosensorSearchSpace; fixed at 600s.)
+        """
+        active = []
+        skip_names = {"target_scenario"}
+        for i, (name, param) in enumerate(self.search_space.parameters.items()):
+            if param.param_type == "categorical" and len(param.values) <= 1:
+                continue
+            if name in skip_names:
+                continue
+            active.append(i)
+        return np.array(active, dtype=int)
+
     def initialize_with_random_samples(self) -> None:
         """Generate initial random samples using Sobol sequence."""
         logger.info(f"Generating {self.n_init} initial random samples...")
 
-        # Use Sobol quasi-random sampling for better coverage
+        # Use Sobol quasi-random sampling for better coverage.
+        # Sobol sequences require n to be a power of 2 for correct balance
+        # properties.  We round n_init up to the next power of 2, generate
+        # that many points, then truncate to exactly n_init so the number of
+        # evaluations remains predictable.
+        n_sobol = 1 << (self.n_init - 1).bit_length()  # next power of 2 >= n_init
         try:
-            # Try modern scipy API first (random_state parameter)
             try:
                 sampler = qmc.Sobol(d=self.search_space.n_params, random_state=self.rng)
             except TypeError:
-                # Fall back to older scipy API (seed parameter)
                 sampler = qmc.Sobol(d=self.search_space.n_params, seed=self.random_state)
-            X_init_normalized = sampler.random(n=self.n_init)
+            X_init_normalized = sampler.random(n=n_sobol)[: self.n_init]
         except Exception as e:
             logger.warning(f"Sobol sampling failed: {e}. Using uniform random sampling.")
             X_init_normalized = self.rng.uniform(0, 1, (self.n_init, self.search_space.n_params))
@@ -107,61 +146,57 @@ class GaussianProcessBO:
         )
 
     def fit_gp(self) -> None:
-        """Fit GP to observed data."""
-        self.gp.fit(self.X_observed, self.y_observed)
-        logger.debug(f"GP fitted on {len(self.y_observed)} samples")
+        """Fit GP on active (non-noise) dimensions only."""
+        X_gp = self.X_observed[:, self._active_dims]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            self.gp.fit(X_gp, self.y_observed)
+        logger.debug(f"GP fitted on {len(self.y_observed)} samples, {len(self._active_dims)} active dims")
 
     def maximize_acquisition(self) -> np.ndarray:
         """
-        Maximize acquisition function to find next candidate point.
+        Maximize acquisition function in the active-dimension subspace.
 
-        Uses L-BFGS-B with multiple random restarts for robustness.
+        The GP is trained on active dims only, so we optimize in that reduced
+        space (fewer dims = faster, cleaner gradient signal). Inactive dims
+        are filled with 0.5 in the returned full-length vector — they decode
+        to their single valid value and do not affect the objective.
 
         Returns:
             Optimal normalized parameters, shape (n_params,)
         """
         y_best = self.y_observed.max()
+        active = self._active_dims
+        n_active = len(active)
 
-        def neg_acq(x):
-            x = x.reshape(1, -1)
-            acq = self.acquisition_fn(x, self.gp, y_best)
+        def neg_acq(x_active):
+            x_active = x_active.reshape(1, -1)
+            acq = self.acquisition_fn(x_active, self.gp, y_best)
             return -acq[0]
 
-        def grad_acq(x):
-            eps = 1e-5
-            grad = np.zeros_like(x)
-            for i in range(len(x)):
-                x_plus = x.copy()
-                x_plus[i] += eps
-                x_minus = x.copy()
-                x_minus[i] -= eps
-                grad[i] = (neg_acq(x_plus) - neg_acq(x_minus)) / (2 * eps)
-            return grad
+        best_x_active = None
+        best_acq_val = -np.inf
 
-        # Multiple restarts
-        best_x = None
-        best_acq = -np.inf
-
-        n_restarts = min(10, self.search_space.n_params * 2)
+        n_restarts = min(10, n_active * 2 + 2)
         for _ in range(n_restarts):
-            x0 = self.rng.uniform(0, 1, self.search_space.n_params)
-
+            x0 = self.rng.uniform(0, 1, n_active)
             result = minimize(
                 neg_acq,
                 x0,
                 method="L-BFGS-B",
-                bounds=[(0, 1)] * self.search_space.n_params,
-                options={"maxiter": 100},
+                bounds=[(0, 1)] * n_active,
+                options={"maxiter": 200},
             )
+            if -result.fun > best_acq_val:
+                best_acq_val = -result.fun
+                best_x_active = result.x
 
-            acq_val = -result.fun
-            if acq_val > best_acq:
-                best_acq = acq_val
-                best_x = result.x
+        best_x_active = np.clip(best_x_active, 0, 1)
 
-        # Clip to valid range
-        best_x = np.clip(best_x, 0, 1)
-
+        # Reconstruct full parameter vector; inactive dims set to midpoint
+        # (they decode to fixed constants and do not affect objective)
+        best_x = np.full(self.search_space.n_params, 0.5)
+        best_x[active] = best_x_active
         return best_x
 
     def optimize(self) -> dict:
@@ -201,8 +236,10 @@ class GaussianProcessBO:
             self.X_observed = np.vstack([self.X_observed, x_next.reshape(1, -1)])
             self.y_observed = np.append(self.y_observed, y_next)
 
-            # Compute GP predictions for logging
-            mu_next, sigma_next = self.gp.predict(x_next.reshape(1, -1), return_std=True)
+            # Compute GP predictions for logging (use active dims only)
+            mu_next, sigma_next = self.gp.predict(
+                x_next[self._active_dims].reshape(1, -1), return_std=True
+            )
             y_best = self.y_observed.max()
 
             # Log iteration
@@ -221,8 +258,8 @@ class GaussianProcessBO:
                     f"Iteration {iteration + 1:3d} | "
                     f"y={y_next:.4f} | "
                     f"y_best={y_best:.4f} | "
-                    f"μ={mu_next[0]:.4f} | "
-                    f"σ={sigma_next[0]:.4f}"
+                    f"mu={mu_next[0]:.4f} | "
+                    f"std={sigma_next[0]:.4f}"
                 )
 
         logger.info("\n" + "=" * 80)
@@ -235,8 +272,10 @@ class GaussianProcessBO:
         y_best = self.y_observed[best_idx]
         config_best = self.search_space.vector_to_dict(x_best)
 
-        # Compute uncertainty bounds
-        mu_best, sigma_best = self.gp.predict(x_best.reshape(1, -1), return_std=True)
+        # Compute uncertainty bounds (GP uses active dims only)
+        mu_best, sigma_best = self.gp.predict(
+            x_best[self._active_dims].reshape(1, -1), return_std=True
+        )
         ci_lower = max(0.0, mu_best[0] - 1.96 * sigma_best[0])
         ci_upper = min(1.0, mu_best[0] + 1.96 * sigma_best[0])
 

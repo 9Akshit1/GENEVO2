@@ -1,250 +1,216 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Load and manage surrogate models (v1 and v2).
-Loads surrogates, scalers, and label encoders built by build_surrogates.py.
+Surrogate loader for v3 models — 15-feature set (physics-informed, no SNR leakage).
 
-CRITICAL: Ensures all preprocessing state is properly loaded and used consistently.
+Features: [log_kd, log_sensitivity, log_response_time,
+           biosensor_type_enc, noise_preset_enc, scenario_enc,
+           log_kd_ctx, log_kd_p1np, w_ctx, w_p1np,
+           delta_theta_sost, delta_theta_ctx, delta_theta_p1np,
+           composite_signal_proxy, log_composite_signal_proxy]
 
-Supports:
-- v1: GradientBoostingRegressor for all metrics
-- v2: CalibratedClassifier for DR, QuantileRegression for FNR/TTD
+Features 6-9,11-12 are zero for single-channel sensors.
+Features 10-14 are physics-informed Langmuir occupancy features: zero data leakage
+since all inputs are design parameters + ODE-calibrated scenario concentrations.
+
+SNR is intentionally excluded (creates shortcut leakage).
 """
 
 import json
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from sklearn.preprocessing import StandardScaler, LabelEncoder
 import joblib
+import numpy as np
+from pathlib import Path
+from typing import Dict, Tuple
+from sklearn.preprocessing import LabelEncoder
 import logging
+import sys
+
+# These imports register DerivedFNRModel / HurdleTTDModel in sys.modules so
+# joblib can deserialise the v3.2 hurdle surrogate pkl files correctly.
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from BO.core.surrogate_models import DerivedFNRModel, HurdleTTDModel  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# Nominal sensor-compartment concentrations from ODE calibration (v5/V6).
+# Must stay in sync with build_surrogates.py _SCENARIO_CONC.
+_SCENARIO_CONC = {
+    "healthy":  {"sost": 0.375,  "ctx": 0.200, "p1np": 0.350},
+    "pmo_mild": {"sost": 0.5625, "ctx": 0.300, "p1np": 0.385},
+    "pmo":      {"sost": 0.875,  "ctx": 0.500, "p1np": 0.525},
+    "ckd_mbd":  {"sost": 1.125,  "ctx": 0.500, "p1np": 0.625},
+}
+_HEALTHY_CONC = _SCENARIO_CONC["healthy"]
 
-class SurrogateLoader:
-    """Load surrogate models with proper initialization of scaler and encoders."""
 
-    def __init__(self, surrogate_dir: str = "BO/bo_results"):
-        """
-        Initialize loader.
+class SurrogateLoaderV3:
+    """Load and use v3 surrogates (15-feature, physics-informed, no SNR)."""
 
-        Args:
-            surrogate_dir: Path to directory with saved surrogate models (default: BO/bo_results)
-        """
-        self.surrogate_dir = Path(surrogate_dir)
-        self.surrogates = {}
-        self.scaler = None
-        self.label_encoders = {}
-        self.metadata = {}
-        self.model_version = None
-        self._initialize()
+    FEATURE_NAMES = [
+        "log_kd", "log_sensitivity", "log_response_time",
+        "biosensor_type_enc", "noise_preset_enc", "scenario_enc",
+        # Array-specific features (zero for single-channel sensors)
+        "log_kd_ctx", "log_kd_p1np", "w_ctx", "w_p1np",
+        # Physics-informed Langmuir occupancy features
+        "delta_theta_sost", "delta_theta_ctx", "delta_theta_p1np",
+        "composite_signal_proxy", "log_composite_signal_proxy",
+    ]
 
-    def _initialize(self, version: str = "v1"):
-        """
-        Initialize by loading surrogates, scaler, and label encoders.
+    def __init__(self, results_dir: Path = None, version: str = None):
+        if results_dir is None:
+            results_dir = Path(__file__).parent.parent / "bo_results"
+        self.results_dir = Path(results_dir)
+        self.saved_ml_dir = self.results_dir / "saved_ml"
+        self._load_models()
 
-        Args:
-            version: Model version string (default: 'v1')
+    def _load_models(self):
+        logger.info(f"Loading surrogates from {self.saved_ml_dir}...")
 
-        Raises:
-            FileNotFoundError: If required files are missing
-        """
-        saved_ml_dir = self.surrogate_dir / "saved_ml"
+        self.models = {}
+        for metric in ("detection_rate", "fnr", "ttd"):
+            path = self.saved_ml_dir / f"surrogate_{metric}.pkl"
+            if not path.exists():
+                raise FileNotFoundError(f"Surrogate model not found: {path}\nRun: python BO/core/build_surrogates.py --data-dir data_v19")
+            self.models[metric] = joblib.load(path)
+            logger.info(f"  Loaded {metric}: {path.name}")
 
-        if not saved_ml_dir.exists():
-            raise FileNotFoundError(
-                f"Surrogate models directory not found at {saved_ml_dir}. "
-                f"Run surrogate training first (e.g., python BO/bo_main.py)"
-            )
-
-        # Load metadata first
-        metadata_path = saved_ml_dir / f"metadata_{version}.json"
-        if metadata_path.exists():
-            with open(metadata_path, 'r') as f:
-                self.metadata = json.load(f)
-            logger.debug(f"Loaded metadata from {metadata_path}")
-            self.model_version = self.metadata.get('version', version)
-        else:
-            logger.warning(f"Metadata not found at {metadata_path}")
-            self.model_version = version
-
-        # Load scaler - CRITICAL
-        scaler_path = saved_ml_dir / f"scaler_{version}.pkl"
+        scaler_path = self.saved_ml_dir / "scaler.pkl"
         if not scaler_path.exists():
-            raise FileNotFoundError(
-                f"Scaler not found at {scaler_path}. "
-                f"Surrogates are unusable without preprocessing state."
-            )
+            raise FileNotFoundError(f"Scaler not found: {scaler_path}")
         self.scaler = joblib.load(scaler_path)
-        logger.info(f"Loaded scaler from {scaler_path}")
 
-        # Load label encoders - CRITICAL
-        encoders_path = saved_ml_dir / f"label_encoders_{version}.pkl"
-        if not encoders_path.exists():
-            raise FileNotFoundError(
-                f"Label encoders not found at {encoders_path}. "
-                f"Cannot encode categorical variables."
+        meta_path = self.saved_ml_dir / "metadata.json"
+        if not meta_path.exists():
+            raise FileNotFoundError(f"Metadata not found: {meta_path}")
+        with open(meta_path) as f:
+            self.metadata = json.load(f)
+
+        self.label_encoders: Dict[str, LabelEncoder] = {}
+        for col, classes in self.metadata["label_encoder_classes"].items():
+            enc = LabelEncoder()
+            enc.fit(classes)
+            self.label_encoders[col] = enc
+
+        self.ttd_log_transform = self.metadata.get("log_transform_ttd", True)
+
+        # Validate the stored feature count matches what we expect.
+        # Emit a warning (not an error) so the loader can still serve old 6-feature
+        # models while data_v8 training is in progress.
+        stored_n = self.metadata.get("n_features", len(self.FEATURE_NAMES))
+        if stored_n != len(self.FEATURE_NAMES):
+            logger.warning(
+                f"Stored surrogate has {stored_n} features but loader expects "
+                f"{len(self.FEATURE_NAMES)} (multi-biomarker). "
+                "Re-train surrogates on data_v8 for full array support. "
+                "Padding missing features with zeros for compatibility."
             )
-        self.label_encoders = joblib.load(encoders_path)
-        logger.info(f"Loaded label encoders from {encoders_path}")
+        self._stored_n_features = stored_n
+        logger.info(f"  Surrogates loaded. Features: {self.FEATURE_NAMES}")
 
-        # Load surrogate models
-        # Detection Rate
-        dr_path = saved_ml_dir / f"surrogate_detection_rate_{version}.pkl"
-        if dr_path.exists():
-            self.surrogates['detection_rate'] = joblib.load(dr_path)
-            logger.info(f"Loaded detection_rate surrogate from {dr_path}")
-        else:
-            raise FileNotFoundError(f"Detection rate surrogate not found: {dr_path}")
+    def build_feature_vector(
+        self,
+        kd_nm: float,
+        sensitivity: float,
+        response_time: float,
+        biosensor_type: str,
+        noise_preset: str,
+        scenario: str,
+        is_direct_binding: bool = False,
+        kd_ctx: float = 0.0,
+        kd_p1np: float = 0.0,
+        w_ctx: float = 0.0,
+        w_p1np: float = 0.0,
+    ) -> np.ndarray:
+        """Build and scale a single 15-feature row.
 
-        # FNR: Check if v2 (quantile) or v1 (single model)
-        fnr_median_path = saved_ml_dir / f"surrogate_fnr_median_{version}.pkl"
-        fnr_path = saved_ml_dir / f"surrogate_fnr_{version}.pkl"
-
-        if fnr_median_path.exists():
-            # v2: Quantile models
-            self.surrogates['fnr'] = {
-                'median': joblib.load(saved_ml_dir / f"surrogate_fnr_median_{version}.pkl"),
-                'lower': joblib.load(saved_ml_dir / f"surrogate_fnr_lower_{version}.pkl"),
-                'upper': joblib.load(saved_ml_dir / f"surrogate_fnr_upper_{version}.pkl"),
-            }
-            logger.info(f"Loaded FNR quantile regressors")
-        elif fnr_path.exists():
-            # v1: Single model
-            self.surrogates['fnr'] = joblib.load(fnr_path)
-            logger.info(f"Loaded FNR regressor from {fnr_path}")
-        else:
-            raise FileNotFoundError(f"FNR surrogate not found")
-
-        # TTD: Check if v2 (quantile) or v1 (single model)
-        ttd_median_path = saved_ml_dir / f"surrogate_ttd_median_{version}.pkl"
-        ttd_path = saved_ml_dir / f"surrogate_ttd_{version}.pkl"
-
-        if ttd_median_path.exists():
-            # v2: Quantile models
-            self.surrogates['ttd'] = {
-                'median': joblib.load(saved_ml_dir / f"surrogate_ttd_median_{version}.pkl"),
-                'lower': joblib.load(saved_ml_dir / f"surrogate_ttd_lower_{version}.pkl"),
-                'upper': joblib.load(saved_ml_dir / f"surrogate_ttd_upper_{version}.pkl"),
-            }
-            logger.info(f"Loaded TTD quantile regressors")
-        elif ttd_path.exists():
-            # v1: Single model
-            self.surrogates['ttd'] = joblib.load(ttd_path)
-            logger.info(f"Loaded TTD regressor from {ttd_path}")
-        else:
-            raise FileNotFoundError(f"TTD surrogate not found")
-
-        logger.info(f"✓ All surrogates and preprocessing state loaded successfully (version={self.model_version})")
-
-    def encode_categorical(self, biosensor_type: str, noise_preset: str, scenario: str = "pmo") -> tuple:
+        Array-specific parameters (kd_ctx, kd_p1np, w_ctx, w_p1np) default to
+        0.0, which is the correct single-channel encoding (no secondary analytes).
+        Physics features 10-14 are computed analytically from Langmuir kinetics
+        using scenario-fixed ODE concentrations — no simulator call required.
         """
-        Encode categorical variables using fitted label encoders.
+        log_kd   = np.log10(max(kd_nm,  1e-3))
+        log_sens = np.log10(max(sensitivity, 1e-3))
+        log_rt   = 0.0 if is_direct_binding else np.log10(max(response_time, 1.0))
 
-        Args:
-            biosensor_type: One of {direct_binding, amplifying}
-            noise_preset: One of {low, medium, high}
-            scenario: One of {healthy, pmo, ckd_mbd}
+        bt_enc = float(self.label_encoders["biosensor_type"].transform([biosensor_type])[0])
+        np_enc = float(self.label_encoders["noise_preset"].transform([noise_preset])[0])
+        sc_enc = float(self.label_encoders["scenario"].transform([scenario])[0])
 
-        Returns:
-            Tuple of (biosensor_enc, noise_enc, scenario_enc) as floats
+        log_kd_ctx  = np.log10(max(kd_ctx,  1e-3)) if kd_ctx  > 0 else 0.0
+        log_kd_p1np = np.log10(max(kd_p1np, 1e-3)) if kd_p1np > 0 else 0.0
 
-        Raises:
-            RuntimeError: If encoders not initialized
-            ValueError: If categorical values are unknown
+        # Physics-informed Langmuir occupancy features
+        conc = _SCENARIO_CONC.get(scenario, _HEALTHY_CONC)
+        h    = _HEALTHY_CONC
+
+        def _dtheta(c_d: float, c_h: float, kd: float) -> float:
+            if kd <= 0:
+                return 0.0
+            return c_d / (kd + c_d) - c_h / (kd + c_h)
+
+        dt_sost = _dtheta(conc["sost"], h["sost"], kd_nm)
+        dt_ctx  = _dtheta(conc["ctx"],  h["ctx"],  kd_ctx)  if kd_ctx  > 0 else 0.0
+        dt_p1np = _dtheta(conc["p1np"], h["p1np"], kd_p1np) if kd_p1np > 0 else 0.0
+
+        w_scl = max(0.0, 1.0 - w_ctx - w_p1np)
+        composite = sensitivity * (w_scl * dt_sost + w_ctx * dt_ctx + w_p1np * dt_p1np)
+        log_composite = float(np.log1p(max(0.0, composite)))
+
+        row = [log_kd, log_sens, log_rt, bt_enc, np_enc, sc_enc,
+               log_kd_ctx, log_kd_p1np, w_ctx, w_p1np,
+               dt_sost, dt_ctx, dt_p1np, composite, log_composite]
+
+        # Backwards-compatibility: truncate to stored feature count for old models.
+        stored_n = getattr(self, "_stored_n_features", len(self.FEATURE_NAMES))
+        x = np.array([row[:stored_n]], dtype=np.float32)
+        return self.scaler.transform(x)
+
+    def predict(
+        self,
+        kd_nm: float,
+        sensitivity: float,
+        response_time: float,
+        biosensor_type: str,
+        noise_preset: str,
+        scenario: str,
+        kd_ctx: float = 0.0,
+        kd_p1np: float = 0.0,
+        w_ctx: float = 0.0,
+        w_p1np: float = 0.0,
+    ) -> Tuple[float, float, float]:
         """
-        if not self.label_encoders:
-            raise RuntimeError(
-                "Encoders not initialized. Surrogates were not loaded properly. "
-                "Check that BO/bo_results/saved_ml/ contains all required files."
-            )
+        Predict (detection_rate, false_negative_rate, time_to_detection).
 
-        try:
-            biosensor_enc = float(self.label_encoders["biosensor_type"].transform([biosensor_type])[0])
-        except (KeyError, ValueError) as e:
-            known = list(self.label_encoders["biosensor_type"].classes_)
-            raise ValueError(
-                f"Unknown biosensor_type: {biosensor_type}. "
-                f"Known types: {known}. Error: {e}"
-            )
+        No simulator call required — pure surrogate inference.
+        DR is returned as a calibrated probability [0, 1].
+        TTD is inverted from log space if log_transform was used during training.
 
-        try:
-            noise_enc = float(self.label_encoders["noise_preset"].transform([noise_preset])[0])
-        except (KeyError, ValueError) as e:
-            known = list(self.label_encoders["noise_preset"].classes_)
-            raise ValueError(
-                f"Unknown noise_preset: {noise_preset}. "
-                f"Known presets: {known}. Error: {e}"
-            )
-
-        try:
-            scenario_enc = float(self.label_encoders["scenario"].transform([scenario])[0])
-        except (KeyError, ValueError) as e:
-            known = list(self.label_encoders["scenario"].classes_)
-            raise ValueError(
-                f"Unknown scenario: {scenario}. "
-                f"Known scenarios: {known}. Error: {e}"
-            )
-
-        return biosensor_enc, noise_enc, scenario_enc
-
-    def is_initialized(self) -> bool:
-        """Check if surrogates and scaler are properly initialized."""
-        return bool(
-            self.surrogates
-            and len(self.surrogates) == 3
-            and self.scaler is not None
-            and len(self.label_encoders) == 3
+        Array biosensor: pass kd_ctx, kd_p1np, w_ctx, w_p1np.
+        Single-channel: leave defaults (0.0) — model treats as single-channel regime.
+        """
+        is_direct = biosensor_type in ("direct_binding", "array")
+        X_scaled = self.build_feature_vector(
+            kd_nm, sensitivity, response_time,
+            biosensor_type, noise_preset, scenario,
+            is_direct_binding=is_direct,
+            kd_ctx=kd_ctx, kd_p1np=kd_p1np,
+            w_ctx=w_ctx, w_p1np=w_p1np,
         )
 
-    def predict_metrics(self, X_scaled: np.ndarray) -> tuple:
-        """
-        Predict all three metrics for a scaled input.
+        dr_pred = float(self.models["detection_rate"].predict_proba(X_scaled)[0, 1])
+        fnr_pred = float(self.models["fnr"].predict(X_scaled)[0])
 
-        Handles both v1 (single models) and v2 (calibrated/quantile) surrogates.
-
-        Args:
-            X_scaled: Scaled feature array (already processed by self.scaler)
-
-        Returns:
-            For v1: Tuple of (dr_pred, fnr_pred, ttd_pred)
-            For v2: Tuple of (dr_prob, fnr_median, fnr_lower, fnr_upper, ttd_median, ttd_lower, ttd_upper)
-        """
-        if not self.is_initialized():
-            raise RuntimeError("Surrogates not initialized")
-
-        # Detection Rate
-        dr_model = self.surrogates['detection_rate']
-        if hasattr(dr_model, 'predict_proba'):
-            # v2: Calibrated classifier
-            dr_pred = float(dr_model.predict_proba(X_scaled)[0, 1])
+        ttd_raw = float(self.models["ttd"].predict(X_scaled)[0])
+        if self.ttd_log_transform:
+            ttd_pred = float(np.expm1(max(ttd_raw, 0.0)))
         else:
-            # v1: Regressor
-            dr_pred = float(np.clip(dr_model.predict(X_scaled)[0], 0, 1))
+            ttd_pred = ttd_raw
 
-        # FNR
-        fnr_model = self.surrogates['fnr']
-        if isinstance(fnr_model, dict):
-            # v2: Quantile regression
-            fnr_median = float(np.clip(fnr_model['median'].predict(X_scaled)[0], 0, 1))
-            fnr_lower = float(np.clip(fnr_model['lower'].predict(X_scaled)[0], 0, 1))
-            fnr_upper = float(np.clip(fnr_model['upper'].predict(X_scaled)[0], 0, 1))
-        else:
-            # v1: Single regressor
-            fnr_pred = float(np.clip(fnr_model.predict(X_scaled)[0], 0, 1))
-            fnr_median = fnr_lower = fnr_upper = fnr_pred
+        dr_pred = float(np.clip(dr_pred, 0.0, 1.0))
+        fnr_pred = float(np.clip(fnr_pred, 0.0, 1.0))
+        ttd_pred = float(np.clip(ttd_pred, 400.0, 9000.0))
 
-        # TTD
-        ttd_model = self.surrogates['ttd']
-        if isinstance(ttd_model, dict):
-            # v2: Quantile regression
-            ttd_median = float(np.clip(ttd_model['median'].predict(X_scaled)[0], 400, 9000))
-            ttd_lower = float(np.clip(ttd_model['lower'].predict(X_scaled)[0], 400, 9000))
-            ttd_upper = float(np.clip(ttd_model['upper'].predict(X_scaled)[0], 400, 9000))
-        else:
-            # v1: Single regressor
-            ttd_pred = float(np.clip(ttd_model.predict(X_scaled)[0], 400, 9000))
-            ttd_median = ttd_lower = ttd_upper = ttd_pred
+        return dr_pred, fnr_pred, ttd_pred
 
-        return (dr_pred, fnr_median, fnr_lower, fnr_upper, ttd_median, ttd_lower, ttd_upper)
+    def get_training_bounds(self) -> Dict:
+        return self.metadata.get("training_bounds", {})

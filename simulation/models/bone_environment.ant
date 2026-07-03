@@ -1,0 +1,333 @@
+// Bone Microenvironment Model - Version 2.0
+// Sclerostin-focused dynamic model for biosensor simulation
+//
+// FIXES from v2.0:
+//   1. Replaced invalid boundary-species syntax:
+//        OLD (invalid in Antimony):
+//          Estrogen is boundary;
+//          PTH is boundary;
+//        NEW (correct):
+//          species $Estrogen in bone;
+//          species $PTH in bone;
+//
+//      The old syntax caused the parser error:
+//      "syntax error, unexpected '', expecting '.' or 'is'"
+//      because Antimony does NOT support standalone:
+//          X is boundary;
+//      declarations.
+//
+//   2. Replaced '^' exponentiation with pow(x,y)
+//      Antimony parser is much more reliable with pow()
+//      especially in multiline kinetic laws.
+//
+//   3. Slight formatting cleanup for multiline reactions
+//      to avoid parser ambiguity.
+//
+// CORRECTIONS from v1.0:
+//   1. Estrogen and PTH declared as boundary species ($) — they have no
+//      production/degradation reactions; this is the correct SBML semantics
+//   2. Removed all `at` events — those one-shot events permanently modify
+//      k_prod parameters and are NOT reset by roadrunner.reset(), corrupting
+//      every subsequent simulation run
+//   3. Fixed diffusion rate laws — old formula gave 250x amplification;
+//      correct formula gives 25x (Sclerostin) and 30x (RANKL/OPG)
+//   4. PTH now mildly INHIBITS sclerostin (biologically correct;
+//      K_pth_Scl=300 so effect is 5percent healthy, 32% CKD-MBD)
+//   5. K_RANKL_OC corrected 50 to 0.3 nM (RANKL range is 0.5-0.9 nM)
+//   6. K_OPG_inhib corrected 100 to 5.0 nM (OPG range is 4-5.5 nM)
+//   7. Initial conditions set to near-equilibrium (OB=2.0, OC=4.0, OC_oc=0.3)
+//   8. Sensor ICs set to diffusion-equilibrium values (25x bone for Sclerostin)
+//
+// Diffusion equilibrium derivation (CORRECTED):
+//   Forward rate_law = k_diff * C_bone * bone    (amount/time)
+//   Back    rate_law = k_back * C_sensor * sensor_chamber  (amount/time)
+//
+//   d(C_sensor)/dt = k_diff*C_bone*bone/sensor_chamber - k_back*C_sensor
+//   At equilibrium: C_sensor/C_bone = k_diff*bone / (k_back*sensor_chamber)
+//     Sclerostin: 0.05*1.0 / (0.02*0.1) = 25x  [OK]
+//     RANKL/OPG:  0.03*1.0 / (0.01*0.1) = 30x  [OK]
+//
+// Calibration: all k_prod values calibrated so that the system is at
+// near-equilibrium from t=0 when env_configs apply their overrides.
+// (OB_ss=2.0, OC_ss=4.0; K_scl_OB=5.0 >> C_bone, so no active Wnt feedback)
+//
+// References:
+//   Baron & Kneissel (2013) Nat Rev Endocrinol 9:531
+//   Boyce & Xing (2008) J Bone Miner Res 23:1838
+//   Ardawi et al. (2011) JCEM 96:3867
+//   Loots et al. (2005) JBC 280:26
+//   Hofbauer et al. (1999) Endocrinology 140:4367
+//
+// Units: time=seconds, concentrations=nM
+
+model BoneEnvironment()
+
+  // --------------------------------------------------------------------------------------------
+  // COMPARTMENTS
+  // --------------------------------------------------------------------------------------------
+
+  compartment bone = 1.0;
+  compartment sensor_chamber = 0.1;
+
+  // --------------------------------------------------------------------------------------------
+  // SPECIES — bone compartment
+  // --------------------------------------------------------------------------------------------
+
+  species Sclerostin_bone in bone;
+  species RANKL_bone      in bone;
+  species OPG_bone        in bone;
+
+  // Multi-biomarker panel species (added v6.0):
+  //   CTX  (C-terminal telopeptide of type I collagen): produced by osteoclasts
+  //         during bone resorption. Accumulates in CKD due to reduced renal clearance.
+  //   P1NP (procollagen type I N-terminal propeptide):  produced by osteoblasts
+  //         during bone formation. Partially accumulates in CKD (hepatic + renal clearance).
+  species CTX_bone   in bone;
+  species P1NP_bone  in bone;
+
+  species Osteocytes      in bone;
+  species Osteoblasts     in bone;
+  species Osteoclasts     in bone;
+
+  species MineralIon      in bone;
+
+  // Boundary species (externally controlled endocrine signals)
+  species $Estrogen in bone;
+  species $PTH in bone;
+
+  // --------------------------------------------------------------------------------------------
+  // SPECIES — sensor compartment
+  // --------------------------------------------------------------------------------------------
+
+  species Sclerostin_sensor in sensor_chamber;
+  species RANKL_sensor      in sensor_chamber;
+  species OPG_sensor        in sensor_chamber;
+
+  species CTX_sensor   in sensor_chamber;
+  species P1NP_sensor  in sensor_chamber;
+
+  // --------------------------------------------------------------------------------------------
+  // KINETIC PARAMETERS
+  // --------------------------------------------------------------------------------------------
+
+  // Sclerostin kinetics
+  // Healthy calibration:
+  //   OC_ss=4.0
+  //   E_factor=0.200
+  //   P_factor=0.945
+  // Result:
+  //   k_prod = 1.389e-6
+
+  k_prod_Scl = 0.000001389;
+  k_deg_Scl  = 0.00007;
+
+  // RANKL kinetics
+  // Healthy calibration:
+  //   OB_ss=2.0
+  //   RANKL_factor=1.165
+
+  k_prod_RANKL = 0.00000429;
+  k_deg_RANKL  = 0.00002;
+
+  // OPG kinetics
+  // Healthy calibration:
+  //   OB_ss=2.0
+  //   OPG_factor=1.058
+
+  k_prod_OPG = 0.0000472;
+  k_deg_OPG  = 0.00002;
+
+  // Cellular turnover
+
+  k_prod_Osteocyte  = 0.001;
+  k_death_Osteocyte = 0.0005;
+
+  k_diff_Osteoblast = 0.01;
+  k_apop_Osteoblast = 0.005;
+
+  k_diff_Osteoclast = 0.008;
+  k_apop_Osteoclast = 0.01;
+
+  // Mineral dynamics
+
+  k_prod_Mineral = 0.087;
+  k_loss_Mineral = 0.025;
+
+  // Diffusion parameters
+
+  k_diff_Scl = 0.05;
+  k_back_Scl = 0.02;
+
+  k_diff_RANKL = 0.03;
+  k_back_RANKL = 0.01;
+
+  k_diff_OPG = 0.03;
+  k_back_OPG = 0.01;
+
+  // CTX kinetics
+  // Healthy calibration: OC_ss=0.3, k_prod_CTX/k_deg_CTX = 0.008/0.3 = 0.02667/unit
+  //   CTX_bone_ss = k_prod_CTX * OC / k_deg_CTX = 5.33e-7 * 0.3 / 0.00002 = 0.008 nM
+  //   CTX_sensor_ss = 25 * 0.008 = 0.20 nM (literature: healthy serum CTX ~200 pg/mL ≈ 0.45 nM,
+  //   model uses a compressed nM scale consistent with sclerostin calibration)
+  k_prod_CTX = 5.33e-7;
+  k_deg_CTX  = 0.00002;
+
+  // P1NP kinetics
+  // Healthy calibration: OB_ss=2.0
+  //   P1NP_bone_ss = k_prod_P1NP * OB / k_deg_P1NP = 1.40e-7 * 2.0 / 0.00002 = 0.014 nM
+  //   P1NP_sensor_ss = 25 * 0.014 = 0.35 nM (literature: healthy serum P1NP ~37 ug/L)
+  k_prod_P1NP = 1.40e-7;
+  k_deg_P1NP  = 0.00002;
+
+  // CTX and P1NP diffusion (same equilibrium ratio as Sclerostin: 25x)
+  k_diff_CTX  = 0.05;
+  k_back_CTX  = 0.02;
+
+  k_diff_P1NP = 0.05;
+  k_back_P1NP = 0.02;
+
+  // --------------------------------------------------------------------------------------------
+  // REGULATORY PARAMETERS
+  // --------------------------------------------------------------------------------------------
+
+  // Estrogen  to  Sclerostin inhibition
+
+  K_est_Scl = 0.5;
+  n_est_Scl = 2.0;
+
+  // PTH  to  Sclerostin mild inhibition
+
+  K_pth_Scl = 300.0;
+  n_pth_Scl = 1.5;
+
+  // Estrogen  to  RANKL inhibition / OPG stimulation
+
+  K_est_RANKL = 0.3;
+  n_est_RANKL = 2.0;
+
+  // PTH  to  OPG inhibition
+
+  K_pth_OPG = 80.0;
+  n_pth_OPG = 1.0;
+
+  // Osteoclast regulation
+
+  K_RANKL_OC  = 0.3;
+  n_RANKL     = 2.0;
+
+  K_OPG_inhib = 5.0;
+
+  // Sclerostin  to  Osteoblast inhibition
+
+  K_scl_OB = 5.0;
+
+  // --------------------------------------------------------------------------------------------
+  // INITIAL CONDITIONS
+  // --------------------------------------------------------------------------------------------
+
+  Sclerostin_bone   = 0.015;
+  Sclerostin_sensor = 0.375;
+
+  RANKL_bone        = 0.5;
+  RANKL_sensor      = 15.0;
+
+  OPG_bone          = 5.0;
+  OPG_sensor        = 150.0;
+
+  Osteocytes  = 4.0;
+  Osteoblasts = 2.0;
+  Osteoclasts = 0.3;
+
+  Estrogen = 1.0;
+  PTH      = 45.0;
+
+  MineralIon = 2.5;
+
+  // CTX and P1NP initial conditions (healthy, at diffusion equilibrium)
+  CTX_bone    = 0.008;
+  CTX_sensor  = 0.200;  // 25 * 0.008
+
+  P1NP_bone   = 0.014;
+  P1NP_sensor = 0.350;  // 25 * 0.014
+
+  // --------------------------------------------------------------------------------------------
+  // REACTIONS
+  // --------------------------------------------------------------------------------------------
+
+  // Sclerostin dynamics
+
+  R_prod_Scl: => Sclerostin_bone; k_prod_Scl * Osteocytes * (1.0 / (1.0 + pow(Estrogen / K_est_Scl, n_est_Scl))) * (1.0 / (1.0 + pow(PTH / K_pth_Scl, n_pth_Scl)));
+
+  R_deg_Scl: Sclerostin_bone => ; k_deg_Scl * Sclerostin_bone;
+
+  // RANKL dynamics
+
+  R_prod_RANKL: => RANKL_bone; k_prod_RANKL * Osteoblasts * (1.0 + 2.0 / (1.0 + pow(Estrogen / K_est_RANKL, n_est_RANKL)));
+
+  R_deg_RANKL: RANKL_bone => ; k_deg_RANKL * RANKL_bone;
+
+  // OPG dynamics
+
+  R_prod_OPG: => OPG_bone; k_prod_OPG * Osteoblasts * (0.5 + 1.5 * (Estrogen / (Estrogen + K_est_RANKL))) * (1.0 / (1.0 + pow(PTH / K_pth_OPG, n_pth_OPG)));
+
+  R_deg_OPG: OPG_bone => ; k_deg_OPG * OPG_bone;
+
+  // Osteocyte dynamics
+
+  R_prod_Osteocyte: => Osteocytes; k_prod_Osteocyte * Osteoblasts;
+
+  R_death_Osteocyte: Osteocytes => ; k_death_Osteocyte * Osteocytes;
+
+  // Osteoblast dynamics
+
+  R_diff_Osteoblast: => Osteoblasts; k_diff_Osteoblast * (1.0 / (1.0 + Sclerostin_bone / K_scl_OB));
+
+  R_apop_Osteoblast: Osteoblasts => ; k_apop_Osteoblast * Osteoblasts;
+
+  // Osteoclast dynamics
+
+  R_diff_Osteoclast: => Osteoclasts; k_diff_Osteoclast * (pow(RANKL_bone, n_RANKL) / (pow(K_RANKL_OC, n_RANKL) + pow(RANKL_bone, n_RANKL))) * (1.0 / (1.0 + OPG_bone / K_OPG_inhib));
+
+  R_apop_Osteoclast: Osteoclasts => ; k_apop_Osteoclast * Osteoclasts;
+
+  // Mineral dynamics
+
+  R_prod_Mineral: => MineralIon; k_prod_Mineral * (1.0 + PTH / 100.0);
+
+  R_loss_Mineral: MineralIon => ; k_loss_Mineral * MineralIon * Osteoblasts;
+
+  // Diffusion dynamics
+
+  R_diff_Scl: Sclerostin_bone => Sclerostin_sensor; k_diff_Scl * Sclerostin_bone * bone;
+
+  R_back_Scl: Sclerostin_sensor => Sclerostin_bone; k_back_Scl * Sclerostin_sensor * sensor_chamber;
+
+  R_diff_RANKL: RANKL_bone => RANKL_sensor; k_diff_RANKL * RANKL_bone * bone;
+
+  R_back_RANKL: RANKL_sensor => RANKL_bone; k_back_RANKL * RANKL_sensor * sensor_chamber;
+
+  R_diff_OPG: OPG_bone => OPG_sensor; k_diff_OPG * OPG_bone * bone;
+
+  R_back_OPG: OPG_sensor => OPG_bone; k_back_OPG * OPG_sensor * sensor_chamber;
+
+  // CTX dynamics — bone resorption marker (produced by osteoclasts)
+
+  R_prod_CTX: => CTX_bone; k_prod_CTX * Osteoclasts;
+
+  R_deg_CTX: CTX_bone => ; k_deg_CTX * CTX_bone;
+
+  R_diff_CTX: CTX_bone => CTX_sensor; k_diff_CTX * CTX_bone * bone;
+
+  R_back_CTX: CTX_sensor => CTX_bone; k_back_CTX * CTX_sensor * sensor_chamber;
+
+  // P1NP dynamics — bone formation marker (produced by osteoblasts)
+
+  R_prod_P1NP: => P1NP_bone; k_prod_P1NP * Osteoblasts;
+
+  R_deg_P1NP: P1NP_bone => ; k_deg_P1NP * P1NP_bone;
+
+  R_diff_P1NP: P1NP_bone => P1NP_sensor; k_diff_P1NP * P1NP_bone * bone;
+
+  R_back_P1NP: P1NP_sensor => P1NP_bone; k_back_P1NP * P1NP_sensor * sensor_chamber;
+
+end

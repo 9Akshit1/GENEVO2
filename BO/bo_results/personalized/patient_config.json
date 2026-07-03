@@ -1,0 +1,90 @@
+{
+  "patient_profile": {
+    "age": 62.0,
+    "egfr": 75.0,
+    "years_since_menopause": 5.0,
+    "t_score": -2.2,
+    "baseline_sost_nm": 0.6,
+    "on_multiple_medications": false,
+    "clinical_urgency": 0.5
+  },
+  "derived_weights": {
+    "w_bmd_mild": 0.06783735789531806,
+    "w_bmd_pmo": 0.2605936675200502,
+    "w_bmd_ckd": 0.010160689688669195,
+    "w_dr_mild": 0.0445356144037026,
+    "w_dr_pmo": 0.14969608223539832,
+    "w_dr_ckd": 0.006670551036915893,
+    "w_fnr_penalty": 0.2728742807314613,
+    "w_fp_penalty": 0.18763175648848437
+  },
+  "bo_config_best": {
+    "biosensor_type": "array",
+    "kd_nm": 4.911211996346166,
+    "sensitivity": 3.633860988866385,
+    "noise_preset": "realistic",
+    "target_scenario": "pmo",
+    "kd_ctx_nm": 0.049999999999999996,
+    "kd_p1np_nm": 0.8097890038421215,
+    "w_ctx": 0.42093395204376555,
+    "w_p1np": 0.06711866849388731,
+    "response_time_s": 600.0
+  },
+  "bo_score": 0.4955711830275544,
+  "bo_ci": [
+    0.45567050743542337,
+    0.5271474386178414
+  ],
+  "n_total_evals": 201,
+  "surrogate_scenario_dr": {
+    "pmo_mild": 0.8823161358364857,
+    "pmo": 0.9200013908195208,
+    "ckd_mbd": 0.9945945945945945,
+    "healthy": 0.5404477154341445
+  },
+  "sim_validation": {
+    "pmo_mild": {
+      "dr_mean": 0.7666666666666667,
+      "dr_std": 0.42295258468165065,
+      "dr_ci95": [
+        0.6153150280283007,
+        0.9180183053050327
+      ],
+      "ttd_mean": 3165.3333333333335,
+      "n_trials": 30
+    },
+    "pmo": {
+      "dr_mean": 0.9333333333333333,
+      "dr_std": 0.24944382578492943,
+      "dr_ci95": [
+        0.8440710066609742,
+        1.0
+      ],
+      "ttd_mean": 932.6666666666666,
+      "n_trials": 30
+    },
+    "ckd_mbd": {
+      "dr_mean": 1.0,
+      "dr_std": 0.0,
+      "dr_ci95": [
+        1.0,
+        1.0
+      ],
+      "ttd_mean": 289.6666666666667,
+      "n_trials": 30
+    },
+    "healthy": {
+      "dr_mean": 0.16666666666666666,
+      "dr_std": 0.3726779962499649,
+      "dr_ci95": [
+        0.03330555844847144,
+        0.3000277748848619
+      ],
+      "ttd_mean": 7760.0,
+      "n_trials": 30
+    }
+  },
+  "v6_composite_from_sim": 0.8892740740740741,
+  "w_scl": 0.5119,
+  "plots_dir": "C:\\Users\\eruku\\Akshith\\GENEVO2\\BO\\bo_results\\personalized\\plots"
+}

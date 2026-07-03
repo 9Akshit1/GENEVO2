@@ -23,11 +23,11 @@ class PhysicsForwardModel:
     expected SNR given design parameters and noise conditions.
     """
 
-    # Sclerostin concentrations at biosensor sensor (nM)
+    # Sclerostin concentrations at biosensor sensor (nM) v5.2 calibration
     SCLEROSTIN_CONC_NM = {
         "healthy": 0.375,
         "pmo": 0.875,
-        "ckd_mbd": 2.0,
+        "ckd_mbd": 1.125,   # ODE CKD: Sclerostin_bone=0.045 * ratio 25
     }
 
     # Noise fractions from models/noise.py (V4.1)

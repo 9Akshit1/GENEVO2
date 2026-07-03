@@ -22,7 +22,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from dataset.generator import DatasetGenerator
+from simulation.dataset.generator import DatasetGenerator
 
 # Configuration
 N_SAMPLES = 5000  # Generate 5000 new samples
@@ -167,7 +167,7 @@ def main():
 
     try:
         # Get the antimony model path (same as main.py)
-        antimony_path = Path(__file__).parent.parent.parent / "models" / "bone_environment.ant"
+        antimony_path = Path(__file__).parent.parent.parent / "simulation" / "models" / "bone_environment.ant"
         if not antimony_path.exists():
             logger.warning(f"Antimony model not found at {antimony_path}, will be generated")
             antimony_path = None

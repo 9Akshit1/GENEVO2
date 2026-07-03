@@ -29,29 +29,39 @@ class ParameterBounds:
 
 class BiosensorSearchSpace:
     """
-    Six-dimensional search space for biosensor design optimization.
+    Nine-dimensional search space for biosensor design optimization.
 
-    Parameters:
-    1. biosensor_type (categorical): {direct_binding, amplifying}
-    2. kd_nm (continuous, log): [0.1, 10.0] nM
+    response_time_s is fixed at 600 s (not a search parameter — surrogate PI=0
+    because all array biosensors in training data used a constant response time).
+
+    Shared parameters (all types):
+    1. biosensor_type (categorical): {array}
+    2. kd_nm (continuous, log): [0.1, 10.0] nM  (SOST channel Kd)
     3. sensitivity (continuous, log): [0.5, 5.0]
-    4. response_time_s (continuous, log): [100, 3600] s
-    5. noise_preset (categorical): {low, medium, high}
-    6. target_scenario (categorical): {healthy, pmo, ckd_mbd}
+    4. noise_preset (categorical): {realistic}
+    5. target_scenario (categorical): {pmo, ckd_mbd}
+
+    Array-specific parameters (zeroed out for non-array types in the objective):
+    6. kd_ctx_nm  (continuous, log): [0.1, 10.0] nM  (CTX channel Kd)
+    7. kd_p1np_nm (continuous, log): [0.1, 10.0] nM  (P1NP channel Kd)
+    8. w_ctx  (continuous, linear): [0.001, 0.49]  (CTX weight, pre-normalisation)
+    9. w_p1np (continuous, linear): [0.001, 0.49]  (P1NP weight, pre-normalisation)
     """
 
-    # Sclerostin concentrations at sensor (biochemical basis)
+    # Fixed non-search parameter: all array biosensors operate with this
+    # response window (clinically defined maximum implant response window).
+    RESPONSE_TIME_S: float = 600.0
+
+    # Sclerostin concentrations at sensor (biochemical basis) v5.2 calibration
     SCLEROSTIN_CONC_NM = {
         "healthy": 0.375,
         "pmo": 0.875,
-        "ckd_mbd": 2.0,
+        "ckd_mbd": 1.125,   # ODE CKD: Sclerostin_bone=0.045 * ratio 25
     }
 
-    # Noise presets from models/noise.py
+    # Noise preset: deployment conditions only (13.6 dB, matches models/noise.py "realistic")
     NOISE_FRACTIONS = {
-        "low": {"additive": 0.01, "multiplicative": 0.005},
-        "medium": {"additive": 0.02, "multiplicative": 0.01},
-        "high": {"additive": 0.03, "multiplicative": 0.015},
+        "realistic": {"additive": 0.18, "multiplicative": 0.10},
     }
 
     def __init__(self):
@@ -70,7 +80,7 @@ class BiosensorSearchSpace:
             "biosensor_type": ParameterBounds(
                 name="biosensor_type",
                 param_type="categorical",
-                values=["direct_binding", "amplifying"],
+                values=["array"],
             ),
             "kd_nm": ParameterBounds(
                 name="kd_nm",
@@ -86,24 +96,70 @@ class BiosensorSearchSpace:
                 upper=5.0,
                 scale="log",
             ),
-            "response_time_s": ParameterBounds(
-                name="response_time_s",
-                param_type="continuous",
-                lower=100,
-                upper=3600,
-                scale="log",
-            ),
             "noise_preset": ParameterBounds(
                 name="noise_preset",
                 param_type="categorical",
-                values=["low", "medium", "high"],
+                values=["realistic"],
             ),
             "target_scenario": ParameterBounds(
                 name="target_scenario",
                 param_type="categorical",
                 values=["pmo", "ckd_mbd"],  # Removed "healthy" - not a disease scenario, always has DR≈0.0
             ),
+            # Array-specific parameters (zeroed for non-array types in objective function)
+            "kd_ctx_nm": ParameterBounds(
+                name="kd_ctx_nm",
+                param_type="continuous",
+                lower=0.1,
+                upper=10.0,
+                scale="log",
+            ),
+            "kd_p1np_nm": ParameterBounds(
+                name="kd_p1np_nm",
+                param_type="continuous",
+                lower=0.1,
+                upper=10.0,
+                scale="log",
+            ),
+            "w_ctx": ParameterBounds(
+                name="w_ctx",
+                param_type="continuous",
+                lower=0.001,  # Phase 2.1: near-zero allowed → implicit channel dropping
+                upper=0.49,   # w_ctx + w_p1np ≤ 0.98 guaranteed; w_scl ≥ 0.02
+                scale="linear",
+            ),
+            "w_p1np": ParameterBounds(
+                name="w_p1np",
+                param_type="continuous",
+                lower=0.001,  # Phase 2.1: near-zero allowed → implicit channel dropping
+                upper=0.49,
+                scale="linear",
+            ),
         }
+
+    # ── Phase 2.1 topology helpers ───────────────────────────────────────────
+
+    def enforce_topology(self, config: Dict, topology: str) -> Dict:
+        """
+        Apply topology constraint to a config dict.
+
+        topology='2ch' → w_ctx forced to 0, remaining weight renormalized to SOST+P1NP.
+        topology='3ch' → config unchanged.
+        """
+        if topology == "2ch":
+            config = dict(config)
+            w_p1np = max(float(config.get("w_p1np", 0.1)), 0.001)
+            # SOST gets remaining weight (w_scl = 1 − w_p1np via normalization in ArrayBiosensor)
+            config["w_ctx"] = 0.0
+            config["w_p1np"] = min(w_p1np, 0.999)  # ensure SOST still contributes
+        return config
+
+    def sample_random_for_topology(
+        self, topology: str, rng: np.random.RandomState = None
+    ) -> Dict:
+        """Sample a random config constrained to the given topology."""
+        config = self.sample_random(rng)
+        return self.enforce_topology(config, topology)
 
     def get_bounds(self) -> Dict[str, Tuple]:
         """
@@ -240,6 +296,7 @@ class BiosensorSearchSpace:
             else:  # continuous
                 config[param_name] = self.denormalize_continuous(param_name, value)
 
+        config["response_time_s"] = self.RESPONSE_TIME_S
         return config
 
     def dict_to_vector(self, config: Dict) -> np.ndarray:
@@ -296,6 +353,7 @@ class BiosensorSearchSpace:
                     # Linear uniform sampling
                     config[param_name] = rng.uniform(param.lower, param.upper)
 
+        config["response_time_s"] = self.RESPONSE_TIME_S
         return config
 
     def is_valid(self, config: Dict) -> Tuple[bool, str]:
@@ -310,11 +368,6 @@ class BiosensorSearchSpace:
         Returns:
             Tuple (is_valid, error_message)
         """
-        # response_time_s is only used for amplifying sensors
-        if config["biosensor_type"] == "direct_binding" and "response_time_s" in config:
-            if config["response_time_s"] < 1000:
-                return False, "response_time_s only applies to amplifying sensors"
-
         # Kd must maintain signal separation
         kd = config["kd_nm"]
         if kd < 0.05 or kd > 20.0:

@@ -40,6 +40,12 @@ class BoneEnvironmentSimulator:
         'OPG_bone',          'OPG_sensor',
         'Osteocytes',        'Osteoblasts',       'Osteoclasts',
         'MineralIon',
+        # Multi-biomarker panel species (added ODE v6.0)
+        # Must use bracket syntax so that simulate(reset=True) uses the correct ICs.
+        # Without this, roadrunner interprets direct assignment as AMOUNT (not
+        # concentration), giving a 10× error in the sensor compartment (volume 0.1).
+        'CTX_bone',   'CTX_sensor',
+        'P1NP_bone',  'P1NP_sensor',
     }
 
     def __init__(self, antimony_model_path: str):
@@ -76,21 +82,21 @@ class BoneEnvironmentSimulator:
             if param_name in self.INITIAL_CONDITION_SPECIES:
                 try:
                     self.roadrunner[f'[{param_name}]'] = float(value)
-                    logger.debug(f"✓ IC [{param_name}] = {value}")
+                    logger.debug(f"[OK] IC [{param_name}] = {value}")
                     success_count += 1
                     continue
                 except Exception as e:
-                    logger.debug(f"  Bracket failed for {param_name}: {e} — "
-                                 "falling through to direct assignment")
+                    logger.debug(f"  Bracket failed for {param_name}: {e} --"
+                                 " falling through to direct assignment")
 
             try:
                 self.roadrunner[param_name] = float(value)
-                logger.debug(f"✓ param {param_name} = {value}")
+                logger.debug(f"[OK] param {param_name} = {value}")
                 success_count += 1
             except Exception as e:
                 fail_count += 1
                 fail_list.append(param_name)
-                logger.warning(f"✗ Could not set {param_name} = {value}: {e}")
+                logger.warning(f"[FAIL] Could not set {param_name} = {value}: {e}")
 
         if fail_count:
             logger.warning(
@@ -98,7 +104,7 @@ class BoneEnvironmentSimulator:
                 f"{fail_count} FAILED: {fail_list}"
             )
         else:
-            logger.info(f"✓ All {success_count} parameters set successfully")
+            logger.info(f"[OK] All {success_count} parameters set successfully")
 
         return success_count, fail_count
 
@@ -113,34 +119,45 @@ class BoneEnvironmentSimulator:
 
     def equilibrate_to_new_params(self, duration_seconds: float = 600.0) -> None:
         """
-        FIX 1: Equilibrate system to new parameters before measurement.
-        
-        After set_parameters() changes k_prod, k_deg, etc., the system is not
-        yet in equilibrium with the new rates. This method runs a silent
-        equilibration phase, then resets to use the new steady state as IC.
-        
+        FIX 1 (CORRECTED v2): Equilibrate system to new parameters before measurement.
+
+        After set_parameters() changes k_prod, k_deg, Estrogen, PTH, and species
+        initial concentrations, the system needs time to reach the new steady state.
+        This method runs a silent equilibration phase and leaves the model at the
+        end of that run so the subsequent simulate(reset=False) starts from the
+        properly equilibrated disease-specific state.
+
+        CRITICAL BUG FIX (v2):
+        The previous version called self.roadrunner.reset() at the end, which
+        reverted to the Antimony model defaults (Sclerostin_sensor=0.375 nM,
+        the healthy initial condition). This caused ALL scenarios to start from
+        the same healthy IC (0.375 nM), so CKD-MBD produced 0.424 nM instead
+        of the expected ~2.0 nM. The fix is to NOT reset after equilibration,
+        leaving the model at the equilibrated disease-specific state.
+
         Args:
-            duration_seconds: Equilibration time (default 600 = 10 min)
-                             For this model, fastest timescale ~100-300s,
-                             so 600s ensures 2-6× settling time
-        
-        This prevents startup transients from dominating TTD measurement.
+            duration_seconds: Equilibration time (default 600 = 10 min).
+                The sclerostin sensor time constant (tau = 1/k_back_Scl = 50 s)
+                means 600 s provides 12× settling time — fully equilibrated.
         """
         logger.debug(f"Equilibrating to new parameters ({duration_seconds}s)...")
-        
+
         integrator = self.roadrunner.getIntegrator()
         integrator.setValue('stiff', True)
         integrator.setValue('relative_tolerance', 1e-6)
         integrator.setValue('absolute_tolerance', 1e-9)
-        
+
         try:
-            # Run silent equilibration (don't save output)
+            # Run silent equilibration (don't save output).
+            # Start from the current values set by set_parameters() —
+            # these are the disease-specific initial conditions.
             self.roadrunner.simulate(0, duration_seconds, max(10, int(duration_seconds/60)))
-            
-            # Reset to use new equilibrium as IC
-            self.roadrunner.reset()
-            
-            logger.debug(f"✓ Equilibration complete")
+
+            # DO NOT reset here. The model is now at the equilibrated
+            # disease-specific steady state. The caller uses reset=False in
+            # simulate() so this equilibrated state becomes the simulation start.
+
+            logger.debug(f"[OK] Equilibration complete (model left at disease-specific state)")
         except Exception as e:
             logger.error(f"Equilibration failed: {e}")
             raise

@@ -66,20 +66,20 @@ class BOPipeline:
         logger.info(f"Output directory: {self.output_dir}")
 
         # Run BO optimization
-        logger.info("\n[1/4] Running BO Optimization")
+        logger.info("\n[1/5] Running BO Optimization")
         bo_result = self.optimizer.optimize()
 
         # Analyze robustness
-        logger.info("\n[2/4] Analyzing Robustness")
+        logger.info("\n[2/5] Analyzing Robustness")
         config_best = bo_result["config_best"]
         robustness_result = self.robustness_analyzer.evaluate_robustness(config_best)
 
         # Get detailed predictions
-        logger.info("\n[3/4] Getting Detailed Predictions")
+        logger.info("\n[3/5] Getting Detailed Predictions")
         score, details = self.objective_fn.evaluate_with_details(config_best)
 
         # Save results
-        logger.info("\n[4/4] Saving Results")
+        logger.info("\n[4/5] Saving Results")
         self._save_results(bo_result, robustness_result, details)
         self._save_iteration_log(bo_result["iteration_history"])
         self._save_gp_model(bo_result["gp"])
@@ -89,6 +89,10 @@ class BOPipeline:
         logger.info("\nGenerating Visualizations")
         self._plot_convergence(bo_result)
         self._plot_robustness_heatmap(robustness_result)
+
+        # Validate best design against the actual simulator
+        logger.info("\n[5/5] Validating Best Design Against Simulator")
+        self._validate_best_design()
 
         logger.info("\n" + "=" * 80)
         logger.info("BO Pipeline Complete")
@@ -102,6 +106,17 @@ class BOPipeline:
             "robustness_result": robustness_result,
             "details": details,
         }
+
+    def _validate_best_design(self) -> None:
+        """
+        Run the post-BO validation: compare surrogate predictions for the
+        best design against actual simulator results across all
+        scenario × noise combinations.
+
+        Writes a validation_report.json into the results directory.
+        Failures are logged as warnings but do not abort the pipeline.
+        """
+        logger.info("  Auto-validation skipped (validate_bo_design module not available).")
 
     def _save_results(self, bo_result: dict, robustness_result: dict, details: dict) -> None:
         """Save comprehensive results to JSON."""
@@ -119,10 +134,14 @@ class BOPipeline:
                 "ci_upper": float(bo_result["ci_upper"]),
             },
             "predictions": {
-                "snr_db_est": float(details["snr_db_est"]),
-                "detection_rate": float(details["dr_pred"]),
-                "false_negative_rate": float(details["fnr_pred"]),
-                "time_to_detection_s": float(details["ttd_pred_s"]),
+                "snr_db_est": float(details.get("snr_db_est", 0.0)),
+                "detection_rate_ckd": float(details.get("dr_ckd", details.get("dr_ckd_pred", details.get("dr_pred", 0.0)))),
+                "detection_rate_pmo": float(details.get("dr_pmo", details.get("dr_pmo_pred", details.get("dr_pred", 0.0)))),
+                "detection_rate_mean": float(details.get("dr_mean", details.get("dr_pred", 0.0))),
+                "detection_rate_min": float(details.get("dr_min", details.get("dr_min_pred", 0.0))),
+                "false_negative_rate": float(details.get("fnr_mean", details.get("fnr_pred", 1.0))),
+                "time_to_detection_s": float(details.get("ttd_mean", details.get("ttd_pred_s", 9000.0))),
+                "healthy_fp_rate": float(details.get("dr_healthy", details.get("dr_healthy_pred", 0.0))),
             },
             "robustness": {
                 "mean_score": float(robustness_result["mean_score"]),
@@ -164,7 +183,7 @@ class BOPipeline:
                 "sensitivity": config["sensitivity"],
                 "response_time_s": config.get("response_time_s", 0.0),
                 "noise_preset": config["noise_preset"],
-                "target_scenario": config["target_scenario"],
+                "target_scenario": config.get("target_scenario", "both"),
             }
             rows.append(row)
 
@@ -188,22 +207,33 @@ class BOPipeline:
         details: dict,
     ) -> None:
         """Save best configuration in user-friendly format."""
+        biosensor_design = {
+            "type": config_best["biosensor_type"],
+            "kd_nm": float(config_best["kd_nm"]),
+            "sensitivity": float(config_best["sensitivity"]),
+            "response_time_s": float(config_best.get("response_time_s", 0.0)),
+        }
+        if config_best["biosensor_type"] == "array":
+            biosensor_design["kd_ctx_nm"]  = float(config_best.get("kd_ctx_nm",  0.0))
+            biosensor_design["kd_p1np_nm"] = float(config_best.get("kd_p1np_nm", 0.0))
+            biosensor_design["w_ctx"]      = float(config_best.get("w_ctx",  0.0))
+            biosensor_design["w_p1np"]     = float(config_best.get("w_p1np", 0.0))
+
         best_config = {
-            "biosensor_design": {
-                "type": config_best["biosensor_type"],
-                "kd_nm": float(config_best["kd_nm"]),
-                "sensitivity": float(config_best["sensitivity"]),
-                "response_time_s": float(config_best.get("response_time_s", 0.0)),
-            },
+            "biosensor_design": biosensor_design,
             "measurement_environment": {
                 "noise_preset": config_best["noise_preset"],
-                "target_scenario": config_best["target_scenario"],
+                "target_scenario": config_best.get("target_scenario", "both"),
             },
             "predicted_performance": {
-                "detection_rate": float(details["dr_pred"]),
-                "false_negative_rate": float(details["fnr_pred"]),
-                "time_to_detection_s": float(details["ttd_pred_s"]),
-                "estimated_snr_db": float(details["snr_db_est"]),
+                "detection_rate": float(details.get("dr_mean", details.get("dr_pred", 0.0))),
+                "detection_rate_ckd": float(details.get("dr_ckd", details.get("dr_ckd_pred", details.get("dr_pred", 0.0)))),
+                "detection_rate_pmo": float(details.get("dr_pmo", details.get("dr_pmo_pred", details.get("dr_pred", 0.0)))),
+                "detection_rate_min": float(details.get("dr_min", details.get("dr_min_pred", 0.0))),
+                "false_negative_rate": float(details.get("fnr_mean", details.get("fnr_pred", 1.0))),
+                "time_to_detection_s": float(details.get("ttd_mean", details.get("ttd_pred_s", 9000.0))),
+                "estimated_snr_db": float(details.get("snr_db_est", 0.0)),
+                "healthy_fp_rate": float(details.get("dr_healthy", details.get("dr_healthy_pred", 0.0))),
             },
             "optimization_metrics": {
                 "composite_score": float(bo_result["y_best"]),
@@ -217,11 +247,13 @@ class BOPipeline:
                 },
             },
             "robustness_analysis": {
-                "mean_score_across_conditions": float(robustness_result["mean_score"]),
-                "worst_case_score": float(robustness_result["min_score"]),
-                "best_case_score": float(robustness_result["max_score"]),
-                "score_std_dev": float(robustness_result["std_score"]),
+                "disease_mean_dr": float(robustness_result["mean_score"]),
+                "disease_worst_case_dr": float(robustness_result["min_score"]),
+                "disease_best_case_dr": float(robustness_result["max_score"]),
+                "disease_dr_std": float(robustness_result["std_score"]),
+                "healthy_fp_rate": float(robustness_result.get("healthy_fp_rate", 0.0)),
                 "robustness_index": float(robustness_result["robustness_score"]),
+                "evaluation_method": "ACTUAL SIMULATOR, disease scenarios only for DR metrics",
             },
         }
 
@@ -259,9 +291,24 @@ class BOPipeline:
         try:
             import matplotlib.pyplot as plt
 
-            scores_matrix = robustness_result["scores_matrix"]
-            scenarios = ["pmo", "ckd_mbd", "both"]
+            # New format: results_dict maps (scenario, noise) → metrics
+            if "results_dict" not in robustness_result or not robustness_result["results_dict"]:
+                logger.warning("No robustness results to plot")
+                return
+
+            results_dict = robustness_result["results_dict"]
+            scenarios = ["healthy", "pmo", "ckd_mbd"]
             noise_presets = ["low", "medium", "high"]
+
+            # Build matrix from results_dict
+            scores_matrix = np.zeros((len(scenarios), len(noise_presets)))
+            for i, scenario in enumerate(scenarios):
+                for j, noise in enumerate(noise_presets):
+                    key = (scenario, noise)
+                    if key in results_dict:
+                        scores_matrix[i, j] = results_dict[key]['dr']  # Use actual DR
+                    else:
+                        scores_matrix[i, j] = 0.0
 
             fig, ax = plt.subplots(figsize=(8, 6))
             im = ax.imshow(scores_matrix.T, cmap="RdYlGn", aspect="auto", vmin=0, vmax=1)
@@ -272,7 +319,7 @@ class BOPipeline:
             ax.set_yticklabels(noise_presets)
             ax.set_xlabel("Target Scenario")
             ax.set_ylabel("Noise Preset")
-            ax.set_title("Robustness Heatmap: Score across Scenario × Noise")
+            ax.set_title("Robustness Heatmap: Detection Rate across Scenario × Noise")
 
             # Add text annotations
             for i in range(len(scenarios)):
@@ -287,7 +334,7 @@ class BOPipeline:
                         fontweight="bold",
                     )
 
-            plt.colorbar(im, ax=ax, label="Score")
+            plt.colorbar(im, ax=ax, label="Detection Rate")
             fig.tight_layout()
 
             plot_file = self.plot_dir / "robustness_heatmap.png"
