@@ -1,29 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Generate publication-quality figures from existing BO result JSON files.
-
-Reads JSON files already on disk and produces PNG figures without
-re-running any simulation or surrogate evaluation.
-
-Figures produced:
-  1. kd_ctx_scan_plot.png       - DR per scenario vs K_{d,CTX}
-  2. benchmark_boxplot.png      - Composite score distribution per optimizer
-  3. sobol_barplot.png          - First-order and total Sobol indices
-  4. realsim_validation.png     - Surrogate vs real-sim DR per scenario
-  5. convergence_summary.png    - Final score distribution across 10 seeds
-  6. langmuir_isotherms.png     - Binding isotherms for each aptamer channel
-  7. robustness_analysis.png    - Missing-channel and gain-drift sensitivity
-  8. closed_loop_learning.png   - Surrogate score and real DR across AL rounds
-  9. scenario_rank_rho.png      - Per-scenario surrogate rank correlation
- 10. [RETIRED] patient_subtypes.png — patient subtype analysis removed (see RESULTS_AUDIT.md §14)
- 11. mobo_pareto_front.png      - Multi-objective Pareto front 2D projections
- 12. mobo_hypervolume.png       - MOBO hypervolume convergence curve
- 13. concentration_shift.png    - Score vs biomarker concentration perturbation
+Generate all publication figures from existing BO result JSON files.
 
 Usage:
-    python BO/analysis/generate_plots.py
-    python BO/analysis/generate_plots.py --out-dir BO/bo_results/diagnostics/plots
+    python BO/analysis/generate_plots.py [--out-dir PATH]
 """
 
 from __future__ import annotations

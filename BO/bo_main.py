@@ -1,58 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-GENEVO2 Unified Bayesian Optimization Entry Point
-
-Single command for all BO workflows. Use --mode to select:
-
-  standard        (default) One high-quality BO run  [n_init=50, n_iter=150]
-  converged       Multi-start convergence test across N seeds
-  subtypes        Patient-subtype-specific BO (4 clinical subtypes)
-  topology        2-channel vs 3-channel biosensor topology comparison
-  mobo            Multi-Objective BO (Pareto front of DR/therapeutic/specificity)
-  benchmark       BO vs DE vs CMA-ES vs NSGA-II vs Random on same budget
-  closed-loop     Closed-loop BO: real-sim validation + surrogate refinement
-  baseline        Priority 1: logistic regression baseline AUC on data_v18
-  kd-scan         Priority 2: systematic kd_ctx scan with real simulator
-  landscape       Priority 3: global LHS landscape audit (10k surrogate queries)
-  validate        Priority 4: surrogate rank-rho measurement on held-out data
-
-  --- Phase 2 scientific rigor modes ---
-  sim-validate    Real-simulator validation of best BO config (n=20 trials/scenario)
-  sobol           Sobol variance-based global sensitivity analysis (surrogate-fast)
-  search-diag     Search space boundary saturation diagnostics
-  dist-shift      Distribution shift & sensor drift robustness test
-  shap            Permutation importance + partial dependence of surrogates
-  robustness-regen Re-run robustness for all convergence seeds (fixes -100 sentinel)
-
-Output structure:
-  BO/bo_results/           -- surrogates + standard run results
-  BO/bo_results/convergence/  -- converged mode
-  BO/bo_results/subtypes/     -- subtypes mode
-  BO/bo_results/topology/     -- topology mode
-  BO/bo_results/mobo/         -- mobo mode
-  BO/bo_results/benchmark/    -- benchmark mode
-  BO/bo_results/closed_loop/  -- closed-loop mode
-  BO/bo_results/diagnostics/  -- baseline, kd-scan, landscape, validate
+GENEVO unified BO entry point.
 
 Usage:
-  # Standard high-quality BO (default, ~5 min on CPU)
-  python BO/bo_main.py
+    python BO/bo_main.py [--mode MODE] [--n-runs N] [--n-init N] [--n-iter N]
 
-  # Multi-start convergence test (5 seeds)
-  python BO/bo_main.py --mode converged --n-runs 5
-
-  # Patient-subtype designs
-  python BO/bo_main.py --mode subtypes
-
-  # Full benchmark: BO vs DE vs CMA-ES vs NSGA-II vs Random
-  python BO/bo_main.py --mode benchmark --n-runs 20
-
-  # Diagnostic: is 0.967 DR actually hard? (Priority 1)
-  python BO/bo_main.py --mode baseline
-
-  # Validate surrogate quality (Priority 4)
-  python BO/bo_main.py --mode validate
+Modes: standard (default), converged, benchmark, mobo, subtypes, topology,
+       sim-validate, sobol, kd-scan, dist-shift, shap, validate, landscape,
+       baseline, closed-loop, search-diag, robustness-regen
 """
 
 import argparse
@@ -70,10 +26,6 @@ _BO   = Path(__file__).parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_BO))
 
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
 
 def _setup_logging(log_dir: Path, verbose: bool = False) -> logging.Logger:
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -99,21 +51,12 @@ def _setup_logging(log_dir: Path, verbose: bool = False) -> logging.Logger:
     return logging.getLogger("bo_main")
 
 
-# ---------------------------------------------------------------------------
-# Subprocess dispatch helper
-# ---------------------------------------------------------------------------
-
 def _run_subprocess(cmd: list, check: bool = False) -> int:
-    """Run a subprocess command; return exit code."""
     result = subprocess.run(cmd, text=True)
     if check and result.returncode != 0:
         print(f"[FAIL] Command exited with code {result.returncode}")
     return result.returncode
 
-
-# ---------------------------------------------------------------------------
-# STANDARD MODE — core GP-EI BO
-# ---------------------------------------------------------------------------
 
 def run_standard(args) -> int:
     from BO.core.surrogate_loader import SurrogateLoaderV3
@@ -225,10 +168,6 @@ def run_standard(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# MOBO MODE — multi-objective Pareto front
-# ---------------------------------------------------------------------------
-
 def run_mobo(args) -> int:
     from BO.core.surrogate_loader import SurrogateLoaderV3
     from mobo.mobo_pipeline import MOBOPipeline
@@ -281,9 +220,6 @@ def run_mobo(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# BASELINE MODE — Priority 1: logistic regression AUC
-# ---------------------------------------------------------------------------
 
 def run_baseline(args) -> int:
     """Logistic regression on raw biomarker values. Answers: is 0.967 DR trivial?"""
@@ -399,9 +335,6 @@ def run_baseline(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# LANDSCAPE MODE — Priority 3: global LHS audit
-# ---------------------------------------------------------------------------
 
 def run_landscape(args) -> int:
     """10k LHS samples scored by surrogate. Checks BO landscape and local optima."""
@@ -513,9 +446,6 @@ def run_landscape(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(

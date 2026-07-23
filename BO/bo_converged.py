@@ -1,28 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-High-convergence BO runner for GENEVO2 biosensor optimization.
-
-BLOCKER 2 FIX: std(best_score) across seeds = 0.031 (target < 0.01).
-Root cause: n_init=20 under-samples a 10-dimensional search space.
-Fix: n_init=50, n_iter=200 (250 total evaluations per run).
+Multi-start BO convergence runner.
 
 Usage:
-    # Single high-quality run (default)
-    python BO/bo_converged.py
+    python BO/bo_converged.py [--n-runs 10] [--n-init 50] [--n-iter 150]
 
-    # Multi-start convergence test (N independent seeds)
-    python BO/bo_converged.py --n-runs 10
-
-    # Quick test
-    python BO/bo_converged.py --n-init 30 --n-iter 100 --n-runs 3
-
-    # Full clinical-grade convergence (2-4 hours on CPU)
-    python BO/bo_converged.py --n-init 64 --n-iter 250 --n-runs 10
-
-Output:
-    BO/bo_results_converged/results/best_config.json
-    BO/bo_results_converged/convergence_report.json
+Output: BO/bo_results_converged/convergence_report.json
 """
 
 from __future__ import annotations

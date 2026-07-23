@@ -1,67 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Therapeutic Objective V6 -- Decoupled kd/sensitivity optimization.
+Composite objective function for GENEVO biosensor optimization (v6).
 
-WHY V6 IS DIFFERENT FROM V5
-============================
-
-V5 uses dose = DR * K_RELEASE * fractional_margin.
-The DR factor (from the surrogate) is strongly sensitivity-dependent.
-This reintroduces sensitivity into the therapeutic term, producing
-r=0.994 correlation with v3 even after mild-centric reweighting.
-
-V6 FIXES: Two structural changes that break the sensitivity-therapeutic coupling.
-
-1. RELATIVE THRESHOLD (pure kd/weight discrimination)
-   The drug-release trigger is set proportional to the healthy signal:
-       R_scenario = composite_scenario / composite_healthy
-                  = (w_scl*ratio_scl + w_ctx*ratio_ctx + w_p1np*ratio_p1np)
-   Since composite_healthy = sensitivity * 1.0 (by construction), dividing by it
-   cancels sensitivity completely.  The drug dose becomes:
-
-       dose = K_RELEASE * max(0, (R - DRUG_THRESHOLD_FRAC) / DRUG_THRESHOLD_FRAC)
-
-   where DRUG_THRESHOLD_FRAC = 1.08 (drug releases when disease signal
-   is at least 8% above healthy baseline).  This is INDEPENDENT of sensitivity.
-
-2. OVERDOSE PENALTY (non-monotone kd landscape)
-   Very low kd values push R_PMO/R_CKD high, delivering excess drug.
-   A quadratic penalty activates when dose > D_SAFE:
-
-       overdose = max(0, dose/D_SAFE - 1)^2 * ALPHA_OVERDOSE
-
-   Net BMD = bmd_gross - overdose
-
-   Effect on landscape:
-   - kd too high → R_mild near threshold → little drug → poor BMD
-   - kd optimal  → R_mild ≈ 1.3, R_PMO ≈ 1.5 → good BMD, no overdose
-   - kd too low  → R_PMO ≈ 2.0 → overdose penalty → reduced net BMD for PMO/CKD
-
-   This creates a true kd sweet spot, breaking the "always lower kd is better"
-   monotone that plagued v3/v4/v5.
-
-EXPECTED LANDSCAPE PROPERTIES:
-   - Therapeutic axis: pure kd/weight optimization, sensitivity-flat
-   - Detection axis: surrogate-based, sensitivity-dominant
-   - Pearson r(v6, v3) target: 0.70-0.85 (down from 0.994 in v5)
-
-NOMINAL SENSOR CONCENTRATIONS (from environment_configs.py)
--------------------------------------------------------------
-    Analyte    Healthy   PMO-mild   PMO     CKD-MBD
-    --------   -------   --------   -----   -------
-    SOST       0.375     0.5625     0.875   1.125   nM
-    CTX        0.200     0.300      0.500   0.500   nM
-    P1NP       0.350     0.385      0.525   0.625   nM
-
-Objective weights:
-  Therapeutic BMD (kd-optimal)  : 0.40
-  Detection reliability (DR)    : 0.25
-  FNR miss rate                 : 0.15
-  FP toxicity penalty           : 0.10
-  TTD speed                     : 0.05
-  Resource/toxicity             : 0.05
-  Total                         : 1.00
+Drug release uses a sensitivity-independent relative threshold (scenario signal /
+healthy signal), so the therapeutic term reflects kd/weight discrimination only.
+Weights: therapeutic=0.40, DR=0.25, FNR=0.15, FP=0.10, TTD=0.05, toxicity=0.05.
 """
 
 import numpy as np
@@ -181,39 +125,18 @@ class TherapeuticObjectiveV6:
 
         return float(sens * (w_scl * norm_scl + w_ctx * norm_ctx + w_p1np * norm_p1np))
 
-    # ------------------------------------------------------------------
-    # Analytical healthy FP rate
-    # ------------------------------------------------------------------
-
-    # Biological variability parameters (literature-calibrated, environment_configs.py v5.4)
+    # Biological variability parameters (literature-calibrated)
     _BIO_SIGMA_BONE = {'scl': 0.30, 'ctx': 0.45, 'p1np': 0.25}
-    _BIO_SIGMA_RATE = 0.15   # k_prod and k_deg sigma each
+    _BIO_SIGMA_RATE = 0.15
     _BIO_CORR = np.array([
         [1.00, 0.50, 0.35],
         [0.50, 1.00, 0.45],
         [0.35, 0.45, 1.00],
     ])
-    _THRESHOLD_MARGIN_FACTOR = 1.25  # matches generate_random_array_config()
+    _THRESHOLD_MARGIN_FACTOR = 1.25
 
     def _analytical_healthy_fp_rate(self, config: dict) -> float:
-        """
-        Analytically compute healthy FP rate from biosensor parameters.
-
-        The real simulator draws each patient's biomarkers from correlated
-        log-normal distributions (σ_SOST=0.30, σ_CTX=0.45, σ_P1NP=0.25,
-        r_SOST-CTX=0.50, r_CTX-P1NP=0.45), with k_prod/k_deg each at σ=0.15
-        adding in quadrature to effective biomarker σ. The Langmuir occupancy
-        ratio R_i = θ(C_i,Kd_i)/θ(H_i,Kd_i) is approximately log-normal with
-        effective σ_R_i = (1−θ_H_i) × σ_eff_i (first-order Taylor expansion).
-
-        The composite signal R = Σ w_i R_i is approximately normal (CLT) with
-        mean=1.0 and variance = w^T (CORR ⊙ σ_r σ_r^T) w.
-
-        FP rate = P(R > threshold/sensitivity) ≈ P(Z > z_fp).
-
-        This formula is surrogate-independent and consistent with the ODE
-        simulator's biological variability model.
-        """
+        """Analytically compute the healthy false-positive rate from Langmuir occupancy statistics."""
         kd      = float(config.get('kd_nm',     1.0))
         kd_ctx  = float(config.get('kd_ctx_nm', 1.0))
         kd_p1np = float(config.get('kd_p1np_nm', 1.0))
@@ -222,34 +145,26 @@ class TherapeuticObjectiveV6:
         w_scl   = max(0.0, 1.0 - w_ctx - w_p1np)
         H       = _NOMINAL_CONCS['healthy']
 
-        # Langmuir occupancy at healthy nominal → elasticity η = 1 − θ
         theta_h = np.array([
             H['scl']  / (kd      + H['scl']  + 1e-12),
             H['ctx']  / (kd_ctx  + H['ctx']  + 1e-12),
             H['p1np'] / (kd_p1np + H['p1np'] + 1e-12),
         ])
-        eta = 1.0 - theta_h   # d(ln R_i)/d(ln C_i)
+        eta = 1.0 - theta_h
 
-        # Effective sigma for each ODE steady-state (IC variability + rate variability)
-        sigma_rate_eff = np.sqrt(2.0) * self._BIO_SIGMA_RATE   # ~0.2121
+        sigma_rate_eff = np.sqrt(2.0) * self._BIO_SIGMA_RATE
         eff_sig = np.array([
             np.sqrt(self._BIO_SIGMA_BONE['scl'] **2 + sigma_rate_eff**2),
             np.sqrt(self._BIO_SIGMA_BONE['ctx'] **2 + sigma_rate_eff**2),
             np.sqrt(self._BIO_SIGMA_BONE['p1np']**2 + sigma_rate_eff**2),
         ])
 
-        # Log-normal sigma of normalized occupancy ratio per channel
         sig_r = eta * eff_sig
         ws    = np.array([w_scl, w_ctx, w_p1np])
 
-        # Composite variance: w^T (CORR ⊙ outer(sig_r)) w
         cov_mat = self._BIO_CORR * np.outer(sig_r, sig_r)
         sigma_comp = float(np.sqrt(max(float(ws @ cov_mat @ ws), 1e-9)))
 
-        # Threshold in normalized composite space:
-        #   threshold = sensitivity + MARGIN * (R_pmo - 1.0)
-        #   composite_healthy ≈ sensitivity × R_h   (R_h ~ 1 ± sigma_comp)
-        #   FP: R_h > 1 + MARGIN * (R_pmo - 1.0) / sensitivity
         R_pmo  = self._R_scenario(config, 'pmo')
         sens   = float(config.get('sensitivity', 1.0))
         threshold_margin = self._THRESHOLD_MARGIN_FACTOR * (R_pmo - 1.0) / max(sens, 1e-9)
@@ -258,36 +173,15 @@ class TherapeuticObjectiveV6:
         return float(np.clip(fp_rate, 0.0, 1.0))
 
     def _R_scenario(self, config: dict, scenario: str) -> float:
-        """
-        Normalized composite occupancy ratio: scenario / healthy.
-
-        This equals the weighted sum of Langmuir occupancy ratios:
-            R = w_scl * (θ_scl_s/θ_scl_h) + w_ctx * (θ_ctx_s/θ_ctx_h) + w_p1np * (...)
-
-        By construction R_healthy = 1.0.
-        Sensitivity cancels out completely (composite_s / composite_h = R, no sensitivity).
-        """
+        """Normalized composite signal: scenario / healthy. Sensitivity cancels."""
         sig_h = self._composite_signal(config, "healthy")
         sig_s = self._composite_signal(config, scenario)
         if sig_h < 1e-9:
             return 1.0
         return float(sig_s / sig_h)
 
-    # ------------------------------------------------------------------
-    # Drug dose model (V6: relative threshold, no DR multiplier)
-    # ------------------------------------------------------------------
-
     def _drug_dose_and_overdose(self, config: dict, scenario: str) -> Tuple[float, float]:
-        """
-        Compute drug dose and overdose penalty for a given scenario.
-
-        dose = K_RELEASE * max(0, (R - DRUG_THRESHOLD_FRAC) / DRUG_THRESHOLD_FRAC)
-
-        Dose is INDEPENDENT of sensitivity (R cancels sensitivity out).
-        Overdose penalty activates quadratically when dose > D_SAFE.
-
-        Returns: (raw_dose, overdose_penalty)
-        """
+        """Returns (raw_dose, overdose_penalty) for a scenario."""
         R = self._R_scenario(config, scenario)
         frac_margin = max(0.0, (R - self.DRUG_THRESHOLD_FRAC) / self.DRUG_THRESHOLD_FRAC)
         raw_dose = float(self.K_RELEASE * frac_margin)
@@ -295,20 +189,12 @@ class TherapeuticObjectiveV6:
         return raw_dose, overdose
 
     def _bmd_net(self, raw_dose: float, overdose: float) -> float:
-        """
-        Net BMD gain = Hill(dose) - overdose_penalty.
-
-        Normalized by BMD_GAIN_REF so 1.0 = reference therapeutic outcome.
-        """
+        """Net BMD gain via Hill equation, normalized to BMD_GAIN_REF."""
         if raw_dose <= 0:
             return 0.0
         bmd_gross = self.BMD_GAIN_MAX * raw_dose / (self.D_HALF + raw_dose)
         bmd_normalized = min(bmd_gross / self.BMD_GAIN_REF, 2.0)
         return float(bmd_normalized - overdose)
-
-    # ------------------------------------------------------------------
-    # Surrogate predictions
-    # ------------------------------------------------------------------
 
     def _predict_all(self, config: dict) -> dict:
         kd_nm         = config.get("kd_nm", 1.0)
@@ -335,9 +221,6 @@ class TherapeuticObjectiveV6:
             "healthy": _p("healthy"),
         }
 
-    # ------------------------------------------------------------------
-    # __call__
-    # ------------------------------------------------------------------
 
     def __call__(self, config: Dict) -> float:
         try:

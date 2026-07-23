@@ -1,40 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Surrogate model builder - v3.2 (Physics-Informed Features + Hurdle Models).
+GBM surrogate model builder for GENEVO (v3.2).
 
-ARCHITECTURE CHANGES in v3.2 over v3.1:
-=============================================================
-The v3.1 FNR and TTD regressors suffered from fundamental distributional
-problems that prevented R² from improving beyond ~0.56:
+Trains three models on ODE-simulated data: a calibrated GBC classifier for DR,
+a derived FNR model (FNR = 1 - P_detect), and a two-stage hurdle model for TTD.
 
-  FNR problem: 75.8% of values are exactly 0.0 or 1.0 (U-shaped bimodal
-  distribution). GBM regression on a U-shaped target is poorly specified —
-  MSE loss pulls predictions toward the mean. Since FNR = 1 − DR_raw
-  at the row level (verified empirically: mean(FNR + DR) = 1.004),
-  training a separate FNR regressor is redundant. The calibrated DR
-  classifier already produces P_detect ≈ E[DR_raw], so FNR_pred = 1 − P_detect
-  is strictly better than a separate underpowered regressor.
-
-  TTD problem: 53.9% of TTD values are at the non-detection sentinel (~9000s).
-  A single regressor on a bimodal target where 54% mass is at one extreme
-  will have high RMSE regardless of model complexity. The correct approach
-  is a two-stage hurdle model:
-    Stage 1 (classification): DR classifier gives P_detect = P(TTD < sentinel)
-    Stage 2 (conditional regression): Train TTD regressor ONLY on detected
-      rows (TTD < TTD_SENTINEL_THRESHOLD). These 921 rows span [170, ~5000s] —
-      a unimodal, tractable regression target.
-    Inference: TTD_pred = P_detect × TTD_cond(X) + (1 − P_detect) × TTD_MAX
-
-RESULTS:
-  FNR effective R²:  ~0.83 (vs 0.562 before) — derived from AUC=0.914 DR clf
-  TTD hurdle R²:     ~0.75 (vs 0.548 before) — conditional regressor on 921 rows
-
-FEATURE SET (15 dimensions): unchanged from v3.1.
-TARGETS:
-    detection_rate     binary {0,1} → calibrated GBC classifier (unchanged)
-    false_negative_rate → DerivedFNRModel wrapper (FNR = 1 − P_detect)
-    time_to_detection  → HurdleTTDModel (two-stage; no log-transform of final output)
+Usage:
+    python BO/core/build_surrogates.py --data-dir data_v19
 """
 
 import json
@@ -138,7 +111,6 @@ class SurrogateBuilderV3:
         self.training_bounds: Dict = {}
         self._feature_names = list(self.FEATURE_NAMES)
 
-    # ------------------------------------------------------------------
     def load_and_prepare_data(
         self, data_dir: Path
     ) -> Tuple[np.ndarray, pd.DataFrame]:
@@ -680,10 +652,6 @@ class SurrogateBuilderV3:
 
         self.logger.info(f"Saved surrogates to {saved_ml_dir}")
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main():
     import argparse
